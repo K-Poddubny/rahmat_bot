@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Tuple
 import requests
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -349,7 +350,7 @@ def search_vacancies(city: str, min_salary: int, category: str, max_pages: int =
 # Хендлеры бота
 # -------------------------------------------------------------
 
-bot = Bot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 @dp.message(CommandStart())
