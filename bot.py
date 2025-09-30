@@ -4,6 +4,9 @@
 
 import asyncio
 import logging
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -20,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.9 on_category: 1%-progress + safe search"
+BOT_VERSION = "v1.0 robust HTTP (retries+timeouts) + logging"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -171,10 +174,10 @@ def fetch_detail_title_salary(url: str) -> Tuple[Optional[str], Tuple[Optional[i
     Грузим страницу вакансии и аккуратно вытаскиваем h1 и зарплату (рядом с ₽/руб).
     """
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
+        r = SESSION.get(url, headers=HEADERS, timeout=15)
         if r.status_code != 200:
             return None, (None, None)
-        soup = BeautifulSoup(r.text, "lxml")
+        soup = BeautifulSoup(get_html(VACANCIES_URL), "lxml")
         h = soup.select_one("h1")
         title = h.get_text(" ", strip=True) if h else None
 
@@ -197,10 +200,10 @@ def get_category_total_for_listpage(category: str) -> Optional[int]:
     Возвращаем число вакансий для выбранной категории, если нашли.
     """
     try:
-        r = requests.get(VACANCIES_URL, headers=HEADERS, timeout=15)
+        r = SESSION.get(VACANCIES_URL, headers=HEADERS, timeout=15)
         if r.status_code != 200:
             return None
-        soup = BeautifulSoup(r.text, "lxml")
+        soup = BeautifulSoup(get_html(VACANCIES_URL), "lxml")
         txt = soup.get_text(" ", strip=True)
 
         # берём русское имя категории
@@ -218,7 +221,31 @@ def get_category_total_for_listpage(category: str) -> Optional[int]:
 # ====== end helpers ======
 
 BASE_URL = "https://rahmat.ru"
-VACANCIES_URL = f"{BASE_URL}/vacancies"
+VACANCIES_URL =
+
+def get_html(url: str, timeout: int = 8) -> str:
+    try:
+        r = SESSION.get(url, headers=HEADERS, timeout=timeout)
+        if r.status_code != 200:
+            logging.warning(f"HTTP {r.status_code} for {url}")
+            return ""
+        return r.text
+    except Exception as e:
+        logging.warning(f"HTTP error for {url}: {e}")
+        return ""
+ f"{BASE_URL}/vacancies"
+def make_session():
+    retry = Retry(total=3, connect=3, read=3, backoff_factor=0.6,
+                  status_forcelist=[429,500,502,503,504],
+                  allowed_methods=["GET"]) 
+    sess = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    sess.mount('http://', adapter)
+    sess.mount('https://', adapter)
+    return sess
+
+SESSION = make_session()
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
     "Accept-Language": "ru-RU,ru;q=0.9",
@@ -282,7 +309,12 @@ def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
                 continue
         except Exception:
             continue
-        soup = BeautifulSoup(resp.text, "lxml")
+        html = get_html(VACANCIES_URL)
+    if not html:
+        logging.warning("list empty html")
+        return []
+    logging.info(f"list html len={len(html)}")
+    soup = BeautifulSoup(html, "lxml")
         candidates = []
         candidates.extend(soup.select("div.vacancy-card"))
         candidates.extend(soup.select("article.vacancy"))
