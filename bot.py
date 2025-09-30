@@ -20,7 +20,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.7.3 clean send_vacancy_list (fixed string) "
+BOT_VERSION = "v0.7.4 py39-compat types"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -166,7 +166,7 @@ def category_keyboard(lang: str) -> InlineKeyboardMarkup:
 # ---------------- Парсер rahmat.ru ----------------
 
 # ====== helpers for details & counters ======
-def fetch_detail_title_salary(url: str) -> tuple[str|None, tuple[int|None,int|None]]:
+def fetch_detail_title_salary(url: str) -> Tuple[Optional[str], Tuple[Optional[int], Optional[int]]]:
     """
     Грузим страницу вакансии и аккуратно вытаскиваем h1 и зарплату (рядом с ₽/руб).
     """
@@ -191,7 +191,7 @@ def fetch_detail_title_salary(url: str) -> tuple[str|None, tuple[int|None,int|No
     except Exception:
         return None, (None, None)
 
-def get_category_total_for_listpage(category: str) -> int|None:
+def get_category_total_for_listpage(category: str) -> Optional[int]:
     """
     На странице списка парсим «Курьер 718 вакансий» и т.п.
     Возвращаем число вакансий для выбранной категории, если нашли.
@@ -448,7 +448,7 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     await send_vacancy_list(call.message, results[:5], category)
 
 
-async def send_vacancy_list(message: Message, items: List[Vacancy], category: str | None = None):
+async def send_vacancy_list(message: Message, items: List[Vacancy], category: Optional[str] = None):
     # Строим список строк вакансий
     lines = []
     for v in items:
