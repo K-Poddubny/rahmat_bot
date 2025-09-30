@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.3 TOP5 + dedup + show max as «до … ₽»"
+BOT_VERSION = "v1.3.1 helpers@top + TOP5 + dedup + max→до ₽"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -408,7 +408,7 @@ async def on_salary(message: Message, state: FSMContext):
     await message.answer(t(lang, "choose_category"), reply_markup=category_keyboard(lang))
 
 @dp.callback_query(F.data.startswith("cat:"))
-# === helpers: dedup + salary score (TOP-5) ===
+
 _vacid_rx = re.compile(r"/vacancies/(\d+)")
 def _vac_id(url: str) -> str:
     m = _vacid_rx.search(url or "")
@@ -666,6 +666,16 @@ def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vaca
 
 # ==== patch: top5 + detail links + salary parser (v1.2) ====
 from urllib.parse import urljoin
+# === helpers: dedup + salary score (TOP-5) ===
+_vacid_rx = re.compile(r"/vacancies/(\d+)")
+def _vac_id(url: str) -> str:
+    m = _vacid_rx.search(url or "")
+    return m.group(1) if m else (url or "")
+
+def _salary_score(v) -> int:
+    mx = v.salary_max if getattr(v, "salary_max", None) is not None else getattr(v, "salary_min", 0)
+    return int(mx or 0)
+
 
 def _pretty_salary(min_v, max_v):
     def fmt(n):
