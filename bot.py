@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.0.2 url/indent fix"
+BOT_VERSION = "v1.1.1 override search_vacancies (clean & safe)"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -537,6 +537,153 @@ async def send_vacancy_list(message: Message, items: List[Vacancy], category: Op
     text += f"\n\n<i>Здесь можно ознакомиться со всеми вакансиями{suffix}:</i> <a href='{VACANCIES_URL}'>{VACANCIES_URL}</a>"
 
     await message.answer(text, disable_web_page_preview=False)
+
+
+# ==== patched search_vacancies (v1.1 clean) ====
+
+def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
+    """
+    Чистый и безопасный парсер списка https://rahmat.ru/vacancies.
+    • Собираем ссылки на /vacancies/ID, тайтл, город (если виден) и зарплату из карточки.
+    • Мягкий фильтр по категории (по названию).
+    • Сортировка по максимальной зарплате.
+    • Если задан desired_salary — отфильтруем карточки ниже.
+    Любые ошибки не валят функцию — вернём то, что удалось.
+    """
+    try:
+        url = VACANCIES_URL
+        html = get_html(url, timeout=10)
+        if not html:
+            logging.warning("search_vacancies: empty html for %s", url)
+            return []
+        soup = BeautifulSoup(html, "lxml")
+
+        # Находим кандидатов-ссылки на детали
+        cards = []
+        for sel in [
+            'a[href^="/vacancies/"]',
+            '.vacancy-card a[href^="/vacancies/"]',
+            '.card a[href^="/vacancies/"]',
+        ]:
+            found = soup.select(sel)
+            if found:
+                cards = found
+                break
+
+        candidates: List[Vacancy] = []
+        seen = set()
+
+        def norm(txt: str) -> str:
+            import re as _re
+            return _re.sub(r"\s+", " ", (txt or "")).strip()
+
+        for a in cards:
+            href = a.get("href") or ""
+            if not href.startswith("/vacancies/"):
+                continue
+            if href in seen:
+                continue
+            seen.add(href)
+
+            # Заголовок
+            title = norm(a.get_text(strip=True))
+            if not title:
+                # Попробуем подняться по DOM за h2/h3
+                parent = a
+                for _ in range(3):
+                    parent = parent.parent
+                    if not parent:
+                        break
+                    h = parent.find(["h2", "h3"])
+                    if h and h.get_text(strip=True):
+                        title = norm(h.get_text(strip=True))
+                        break
+            if not title:
+                title = "Вакансия"
+
+            # Город (пытаемся распознать «Москва» в ближайшем тексте)
+            city_txt = ""
+            parent = a
+            for _ in range(3):
+                parent = parent.parent
+                if not parent:
+                    break
+                txt = parent.get_text(" ", strip=True)
+                if "Москва" in txt or "Moscow" in txt:
+                    city_txt = "Москва"
+                    break
+            if not city_txt:
+                city_txt = city or "Москва"
+
+            # Зарплата из ближайшей карточки
+            salary_min = None
+            salary_max = None
+            parent = a
+            card_txt = ""
+            for _ in range(3):
+                parent = parent.parent
+                if not parent:
+                    break
+                card_txt = parent.get_text(" ", strip=True)
+                if card_txt:
+                    break
+            if card_txt:
+                import re as _re
+                # от X до Y ₽
+                m = _re.search(r"от\s*([\d\s]+)\s*до\s*([\d\s]+)\s*[₽Рруб.]*", card_txt, _re.I)
+                if m:
+                    salary_min = int(_re.sub(r"\D", "", m.group(1))) if m.group(1) else None
+                    salary_max = int(_re.sub(r"\D", "", m.group(2))) if m.group(2) else None
+                else:
+                    m = _re.search(r"до\s*([\d\s]+)\s*[₽Рруб.]*", card_txt, _re.I)
+                    if m:
+                        salary_max = int(_re.sub(r"\D", "", m.group(1)))
+                    else:
+                        m = _re.search(r"([\d\s]{4,})\s*[₽Рруб.]*", card_txt)
+                        if m:
+                            val = int(_re.sub(r"\D", "", m.group(1)))
+                            salary_min = val
+                            salary_max = val
+
+            full_url = href if href.startswith("http") else (BASE_URL.rstrip("/") + href)
+
+            # Категория — мягко по названию
+            cat_ok = True
+            low = title.lower()
+            cat_map = {
+                "delivery": ["достав", "курь", "delivery"],
+                "driver": ["водит", "driver", "такси", "авто"],
+                "construction": ["стро", "монтаж", "ремонт", "сантех", "электрик"],
+                "helper": ["разнораб", "грузчик", "рабоч", "подсоб"],
+            }
+            wanted = cat_map.get(category, [])
+            if wanted:
+                cat_ok = any(w in low for w in wanted)
+            if not cat_ok:
+                continue
+
+            candidates.append(Vacancy(
+                title=title,
+                url=full_url,   # ведём сразу на карточку
+                city=city_txt,
+                salary_min=salary_min,
+                salary_max=salary_max,
+            ))
+
+        # Сортировка по зарплате
+        candidates.sort(key=lambda v: (v.salary_max or 0, v.salary_min or 0), reverse=True)
+
+        # Фильтрация по желаемой зарплате
+        if desired_salary and desired_salary > 0:
+            filtered = [v for v in candidates if (v.salary_max or v.salary_min or 0) >= desired_salary]
+            if filtered:
+                candidates = filtered
+
+        logging.info("search_vacancies: %d candidates", len(candidates))
+        return candidates
+    except Exception as e:
+        logging.exception("search_vacancies error: %s", e)
+        return []
 
 async def main():
     logging.basicConfig(level=logging.INFO)
