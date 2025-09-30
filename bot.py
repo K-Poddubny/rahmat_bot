@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.4.6 join-line glued properly"
+BOT_VERSION = "v1.4.7 fix TOP-5 prep + clean send_vacancy_list"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -501,6 +501,34 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     lang = data.get("lang") or "ru"
 
 
+        # === compute TOP-5 (dedup + sort by max salary) ===
+    if not results:
+        await call.message.answer("К сожалению, по вашему запросу ничего не нашлось. Попробуйте выбрать другую категорию или указать меньшую сумму.")
+        return
+
+    def _extract_id(u: str):
+        m = re.search(r"/vacancies/(\d+)", u or "")
+        return m.group(1) if m else (u or "")
+
+    dedup = {}
+    for v in results:
+        key = getattr(v, "vacancy_id", None) or _extract_id(getattr(v, "url", ""))
+        if key and key not in dedup:
+            dedup[key] = v
+    results = list(dedup.values())
+
+    def _mx(v):
+        m = getattr(v, "salary_max", None)
+        if m is None:
+            m = getattr(v, "salary_min", 0)
+        return m or 0
+
+    results.sort(key=_mx, reverse=True)
+    top5 = results[:5]
+    # === end TOP-5 prep ===
+
+
+
     await send_vacancy_list(call.message, top5, lang, desired, category)
 
 async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
@@ -509,15 +537,13 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         mx = getattr(v, 'salary_max', None)
         if mx is None:
             mx = getattr(v, 'salary_min', None)
-        if mx is None:
-            salary_str = '—'
-        else:
-            salary_str = f"до {mx:,} ₽".replace(',', ' ')
-        city = getattr(v, 'city', None) or 'Москва'
+        salary_str = '—' if mx is None else f"до {mx:,} ₽".replace(',', ' ')
+        city  = getattr(v, 'city', None) or 'Москва'
         title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
-        url = getattr(v, 'url', '')
+        url   = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '\n'.join(lines) if lines else '—'
+    text = '
+'.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
 def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
