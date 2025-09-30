@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.3.6 fix send_vacancy_list + greet line"
+BOT_VERSION = "v1.4 syntax clean + Uzbek natural phrasing"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -48,24 +48,21 @@ I18N: Dict[str, Dict[str, str]] = {
         "cat_helper": "Разнорабочий",
         "salary_bad": "Пожалуйста, отправьте число — желаемую зарплату в рублях (например, 90 000).",
     },
-    "uz": {
-        "start": "Salom! Interfeys tilini tanlang:",
-        "help": "Men eng yuqori maoshli ishlarni topishga yordam beraman.",
-        "choose_geo": "Shaharni tanlang (hozircha faqat Moskva):",
-        "choose_salary": "Qancha maosh xohlaysiz? Summani rublda raqam bilan yozing, masalan 90 000:",
-        "choose_category": "Qanday ish istaysiz? Kategoriyani tanlang:",
-        "searching": "Ish o‘rinlarini qidirmoqdaman…",
-        "found_more": "Ajoyib! Siz xohlaganingizdan ham yuqori maoshli ishlar topildi.",
-        "found_some": "Mos ishlar:",
-        "found_none": "Afsuski, xohlagan maoshingizga mos topilmadi. Mana mavjud takliflar:",
-        "error": "Qidirishda xatolik yuz berdi. Birozdan so‘ng urinib ko‘ring.",
-        "geo_moscow": "Moskva",
-        "cat_delivery": "Yetkazib berish",
+        "uz": {
+        "hello": "Assalomu alaykum! Men sizga Moskvada ish topishda yordam bera olaman. Avval tilni tanlang:",
+        "choose_city": "Qaysi shaharda ishlamoqchisiz? Hozircha Moskva mavjud.",
+        "choose_salary": "Qancha maosh xohlaysiz? Summani rublarda raqam bilan yozing, masalan 90 000:",
+        "choose_category": "Qaysi sohada ishlamoqchisiz? Pastdan tanlang:",
+        "cat_delivery": "Kuryer",
         "cat_driver": "Haydovchi",
         "cat_construction": "Qurilish",
         "cat_helper": "Yordamchi ishchi",
-        "salary_bad": "Iltimos, rublda raqam yuboring (masalan, 90 000).",
+        "searching": "Qidiryapman…",
+        "nothing_found": "Kechirasiz, siz xohlagan maoshga mos ishlar topilmadi. Mana hozir bor variantlar:",
+        "footer_all": "Barcha vakansiyalarni bu yerda ko‘rishingiz mumkin:",
+        "found_total": "Jami topildi: {n}"
     },
+
     "ky": {
         "start": "Салам! Интерфейс тилин тандаңыз:",
         "help": "Эң жогорку айлыктагы жумуштарды табууга жардам берем.",
@@ -120,7 +117,21 @@ CATEGORIES = [
 
 CAT_LABELS = {
     "ru": {"delivery": "Доставка", "driver": "Водитель", "construction": "Строительство", "helper": "Разнорабочий"},
-    "uz": {"delivery": "Yetkazib berish", "driver": "Haydovchi", "construction": "Qurilish", "helper": "Yordamchi ishchi"},
+        "uz": {
+        "hello": "Assalomu alaykum! Men sizga Moskvada ish topishda yordam bera olaman. Avval tilni tanlang:",
+        "choose_city": "Qaysi shaharda ishlamoqchisiz? Hozircha Moskva mavjud.",
+        "choose_salary": "Qancha maosh xohlaysiz? Summani rublarda raqam bilan yozing, masalan 90 000:",
+        "choose_category": "Qaysi sohada ishlamoqchisiz? Pastdan tanlang:",
+        "cat_delivery": "Kuryer",
+        "cat_driver": "Haydovchi",
+        "cat_construction": "Qurilish",
+        "cat_helper": "Yordamchi ishchi",
+        "searching": "Qidiryapman…",
+        "nothing_found": "Kechirasiz, siz xohlagan maoshga mos ishlar topilmadi. Mana hozir bor variantlar:",
+        "footer_all": "Barcha vakansiyalarni bu yerda ko‘rishingiz mumkin:",
+        "found_total": "Jami topildi: {n}"
+    },
+
     "ky": {"delivery": "Жеткирүү", "driver": "Айдоочу", "construction": "Курулуш", "helper": "Ар түрдүү жумушчу"},
     "tg": {"delivery": "Расондан", "driver": "Ронанда", "construction": "Сохтмон", "helper": "Коргари умумӣ"},
 }
@@ -885,3 +896,9 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
     text = '\n'.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
+
+# UZB_CYR_HINT: Кириллик вариант (если понадобится переключить):
+# "hello": "Ассалому алайкум! Мен сизга Москвада иш топишда ёрдам бера оламан. Аввал тилни танланг:",
+# "choose_city": "Қайси шаҳарда ишламоқчисиз? Ҳозирча Москва мавжуд.",
+# "choose_salary": "Қанча маош хоҳлайсиз? Суммани рублларда рақам билан ёзинг, масалан 90 000:",
+# va hokazo…
