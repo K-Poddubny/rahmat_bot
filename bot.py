@@ -1,8 +1,6 @@
-# bot.py
 # -*- coding: utf-8 -*-
-# Телеграм-бот: поиск вакансий на rahmat.ru/vacancies
-# Поддержка RU/UZ/KY/TG, парсинг зарплаты с любыми пробелами,
-# aiogram 3.7+ (DefaultBotProperties), логирование и устойчивый парсер
+# Telegram-бот: поиск вакансий на rahmat.ru/vacancies
+# Комментарии на русском языке
 
 import asyncio
 import logging
@@ -22,12 +20,12 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.5 salary-parse-all-langs + aiogram37"
+BOT_VERSION = "v0.6 precise-salary (₽/руб) + ignore-counters"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
 
-# ---------- Локализация ----------
+# ---------------- Локализация ----------------
 I18N: Dict[str, Dict[str, str]] = {
     "ru": {
         "start": "Здравствуйте! Выберите язык интерфейса:",
@@ -111,10 +109,10 @@ SUPPORTED_LANGS = [
 ]
 
 CATEGORIES = [
-    ("delivery", ["Доставка", "Yetkazib", "Жеткир", "Расон"], ["курьер", "доставка"]),
-    ("driver", ["Водитель", "Haydovchi", "Айдоочу", "Ронанда"], ["водитель", "такси", "экспедитор"]),
-    ("construction", ["Строительство", "Qurilish", "Курулуш", "Сохтмон"], ["строител", "сантех", "отделоч", "монтаж"]),
-    ("helper", ["Разнорабочий", "Yordamchi", "Ар түрдүү", "Коргари"], ["разнораб", "грузчик", "подсоб", "рабочий"]),
+    ("delivery", ["Доставка", "Yetkazib", "Жеткир", "Расон"], ["курьер", "достав"]),
+    ("driver", ["Водитель", "Haydovchi", "Айдоочу", "Ронанда"], ["водител", "такси", "экспедитор"]),
+    ("construction", ["Строительство", "Qurilish", "Курулуш", "Сохтмон"], ["строит", "монтаж", "сантех", "отделоч", "электрик"]),
+    ("helper", ["Разнорабочий", "Yordamchi", "Ар түрдүү", "Коргари"], ["разнораб", "грузчик", "подсоб"]),
 ]
 
 CAT_LABELS = {
@@ -165,57 +163,70 @@ def category_keyboard(lang: str) -> InlineKeyboardMarkup:
     if row: kb.append(row)
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# ---------- Парсер rahmat.ru ----------
+# ---------------- Парсер rahmat.ru ----------------
 BASE_URL = "https://rahmat.ru"
 VACANCIES_URL = f"{BASE_URL}/vacancies"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
     "Accept-Language": "ru-RU,ru;q=0.9",
 }
 
-SALARY_RE = re.compile(r"(\d[\d\s]{3,})")
-CITY_WORDS = ["Москва", "Moskva", "Moscow"]
-
-CATEGORY_KEYWORDS = {
-    "delivery": ["достав", "курьер", "курьером"],
-    "driver": ["водитель", "такси", "экспедитор", "шофер", "шофёр"],
-    "construction": ["строител", "монтаж", "сантех", "отделоч", "электрик"],
-    "helper": ["разнораб", "грузчик", "подсоб", "рабочий"],
-}
+# Регулярка: берём только числа, возле которых есть ₽ или "руб"
+CURRENCY_NUM_RE = re.compile(r"(?:от|до)?\s*(\d[\d\s]{3,})\s*(?:₽|руб)", re.I)
 
 def extract_ints(text: str) -> List[int]:
-    nums = []
-    for m in SALARY_RE.findall(text or ""):
+    """Возвращаем суммы (int), только если рядом валюта."""
+    if not text:
+        return []
+    txt = text.replace("\xa0", " ")
+    out: List[int] = []
+    for m in CURRENCY_NUM_RE.findall(txt):
         try:
-            nums.append(int(m.replace(" ", "")))
+            out.append(int(m.replace(" ", "")))
         except ValueError:
             pass
-    return nums
+    return out
 
 def parse_salary(text: str) -> Tuple[Optional[int], Optional[int]]:
     nums = extract_ints(text)
-    if not nums: return None, None
-    if len(nums) == 1: return nums[0], None
+    if not nums:
+        return None, None
+    if len(nums) == 1:
+        return nums[0], None
     return min(nums), max(nums)
 
+CITY_WORDS = ["Москва", "Moskva", "Moscow"]
+
 def looks_like_city(text: str) -> Optional[str]:
-    if not text: return None
+    if not text:
+        return None
+    tl = text.lower()
     for w in CITY_WORDS:
-        if w.lower() in text.lower(): return "Москва"
+        if w.lower() in tl:
+            return "Москва"
     return None
 
+CATEGORY_KEYWORDS = {
+    "delivery": ["достав", "курьер"],
+    "driver": ["водител", "такси", "экспедитор", "шофер", "шофёр"],
+    "construction": ["строит", "монтаж", "сантех", "отделоч", "электрик"],
+    "helper": ["разнораб", "грузчик", "подсоб", "рабоч"],
+}
+
 def match_category(cat: str, text: str) -> bool:
-    text_l = (text or "").lower()
-    return any(kw in text_l for kw in CATEGORY_KEYWORDS.get(cat, []))
+    tl = (text or "").lower()
+    return any(kw in tl for kw in CATEGORY_KEYWORDS.get(cat, []))
 
 def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
-    cards = []
+    """Грузим несколько страниц со списком вакансий и собираем карточки."""
+    cards: List[BeautifulSoup] = []
     session = requests.Session()
     for page in range(1, pages + 1):
         url = VACANCIES_URL if page == 1 else f"{VACANCIES_URL}?page={page}"
         try:
             resp = session.get(url, headers=HEADERS, timeout=15)
-            if resp.status_code != 200: continue
+            if resp.status_code != 200:
+                continue
         except Exception:
             continue
         soup = BeautifulSoup(resp.text, "lxml")
@@ -224,34 +235,50 @@ def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
         candidates.extend(soup.select("article.vacancy"))
         candidates.extend(soup.select("div[class*='vacancy']"))
         candidates.extend(soup.select("a[href*='/vac']"))
+        # удалим дубль-элементы
         seen, cleaned = set(), []
         for c in candidates:
             key = str(c)
-            if key in seen: continue
-            seen.add(key); cleaned.append(c)
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(c)
         cards.extend(cleaned)
     return cards
 
 def card_to_vacancy(card: BeautifulSoup) -> Optional[Vacancy]:
+    """Преобразуем карточку в объект Vacancy."""
     title_tag = card.select_one("a[href*='/vac']") or card.select_one("h2 a") or card.select_one("h3 a")
-    if not title_tag:
+    if title_tag:
+        title_text = title_tag.get_text(strip=True)
+        url = title_tag.get("href") or ""
+    else:
         if card.name == "a" and card.get("href"):
-            title_text = card.get_text(strip=True); url = card.get("href")
+            title_text = card.get_text(strip=True)
+            url = card.get("href")
         else:
             return None
-    else:
-        title_text = title_tag.get_text(strip=True); url = title_tag.get("href") or ""
-    if url and url.startswith("/"): url = BASE_URL + url
-    if not url.startswith("http"): url = BASE_URL + "/" + url.lstrip("/")
 
-    salary_container = card.select_one("[class*='salary']") or card.select_one("[class*='pay']") or card.select_one("[class*='compens']")
-    salary_text = salary_container.get_text(" ", strip=True) if salary_container else card.get_text(" ", strip=True)
+    if url.startswith("/"):
+        url = BASE_URL + url
+    if not url.startswith("http"):
+        url = BASE_URL + "/" + url.lstrip("/")
+
+    # Берём зарплату только из блоков salary/pay/compens — игнорируем счётчики «718 вакансий»
+    salary_container = (
+        card.select_one("[class*='salary']") or
+        card.select_one("[class*='pay']") or
+        card.select_one("[class*='compens']")
+    )
+    salary_text = salary_container.get_text(" ", strip=True) if salary_container else ""
     sal_min, sal_max = parse_salary(salary_text)
 
     city = None
     city_tag = card.select_one("[class*='city'], [class*='geo'], [class*='location']")
-    if city_tag: city = looks_like_city(city_tag.get_text(" ", strip=True))
-    if not city: city = looks_like_city(card.get_text(" ", strip=True))
+    if city_tag:
+        city = looks_like_city(city_tag.get_text(" ", strip=True))
+    if not city:
+        city = looks_like_city(card.get_text(" ", strip=True))
 
     return Vacancy(title=title_text, url=url, city=city, salary_min=sal_min, salary_max=sal_max)
 
@@ -260,17 +287,25 @@ def search_vacancies(city: str, min_salary: int, category: str, max_pages: int =
     results: List[Vacancy] = []
     for card in cards:
         v = card_to_vacancy(card)
-        if not v: continue
-        if city == "Москва" and v.city and v.city != "Москва": continue
+        if not v:
+            continue
+        # город
+        if city == "Москва" and v.city and v.city != "Москва":
+            continue
+        # категория — по заголовку и по тексту карточки
         if not match_category(category, v.title):
-            if not match_category(category, card.get_text(" ", strip=True)): continue
-        if v.salary_max is not None and v.salary_max < min_salary: continue
-        if v.salary_max is None and v.salary_min is not None and v.salary_min < min_salary: continue
+            if not match_category(category, card.get_text(" ", strip=True)):
+                continue
+        # фильтр по зарплате (пропускаем «от 160 000 ₽» без верхней границы)
+        if v.salary_max is not None and v.salary_max < min_salary:
+            continue
+        if v.salary_max is None and v.salary_min is not None and v.salary_min < min_salary:
+            continue
         results.append(v)
     results.sort(key=lambda x: x.salary_sort_key, reverse=True)
     return results
 
-# ---------- Бот ----------
+# ---------------- Бот ----------------
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
@@ -297,17 +332,16 @@ async def on_geo(call: CallbackQuery, state: FSMContext):
 
 @dp.message(FindJob.salary)
 async def on_salary(message: Message, state: FSMContext):
+    # Понимаем числа с пробелами/дефисами/точками и др.: вытаскиваем только цифры
+    raw = (message.text or "")
+    digits = re.sub(r"\D+", "", raw)
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    raw = message.text or ""
-    # Удаляем всё, что не цифры (поддерживаем пробелы/дефисы/точки/неразрывные)
-    digits = re.sub(r"\D+", "", raw)
     if len(digits) < 4:
         await message.answer(t(lang, "salary_bad"))
         return
     desired = int(digits)
     await state.update_data(salary=desired)
-
     await state.set_state(FindJob.category)
     await message.answer(t(lang, "choose_category"), reply_markup=category_keyboard(lang))
 
@@ -334,7 +368,7 @@ async def on_category(call: CallbackQuery, state: FSMContext):
             relaxed = []
         if relaxed:
             await call.message.answer(t(lang, "found_none"))
-            await send_vacancy_list(call.message, relaxed[:5], lang, desired)
+            await send_vacancy_list(call.message, relaxed[:5])
         else:
             await call.message.answer(t(lang, "error"))
         return
@@ -344,10 +378,9 @@ async def on_category(call: CallbackQuery, state: FSMContext):
         await call.message.answer(t(lang, "found_more"))
     else:
         await call.message.answer(t(lang, "found_some"))
+    await send_vacancy_list(call.message, results[:5])
 
-    await send_vacancy_list(call.message, results[:5], lang, desired)
-
-async def send_vacancy_list(message: Message, items: List[Vacancy], lang: str, desired: int):
+async def send_vacancy_list(message: Message, items: List[Vacancy]):
     lines = []
     for v in items:
         if v.salary_min is None and v.salary_max is None:
@@ -358,6 +391,7 @@ async def send_vacancy_list(message: Message, items: List[Vacancy], lang: str, d
             val = v.salary_max or v.salary_min
             salary_str = f"{val:,}".replace(",", " ")
         city = v.city or "Москва"
+        # красивый список ссылок
         lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
     await message.answer("\n".join(lines), disable_web_page_preview=False)
 
