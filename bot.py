@@ -462,7 +462,7 @@ async def send_vacancy_list(message: Message, items: List[Vacancy], category: st
         city = v.city or "Москва"
         lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
 
-    text = "Вот подходящие вакансии:
+    text = "Вот подходящие вакансии:\n\n" + ("\n".join(lines) if lines else "—")\n\n" + ("\n".join(lines) if lines else "—")
 
 " + ("
 ".join(lines) if lines else "—")
