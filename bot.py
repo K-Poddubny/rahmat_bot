@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.3.4 fix broken message.answer quotes"
+BOT_VERSION = "v1.3.5 unescape quotes in message.answer"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -374,8 +374,7 @@ dp = Dispatcher()
 @dp.message(CommandStart())
 async def on_start(message: Message, state: FSMContext):
     await state.set_state(FindJob.lang)
-    await message.answer("Здравствуйте! / Salom! / Салам! / Салом!", reply_markup=lang_keyboard())
-
+    await message.answer("Здравствуйте! / Salom! / Салам! / Салом!", reply_markup=lang_keyboard()", disable_web_page_preview=False)
 @dp.callback_query(F.data.startswith("lang:"))
 async def on_lang(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":", 1)[1]
@@ -507,7 +506,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or 'Вакансия курьера'
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    await message.answer(\"Ищу вакансии…\")  # fixed
+    await message.answer("Ищу вакансии…")  # fixed
 '.join(lines) if lines else '—', disable_web_page_preview=False)
 
 
@@ -824,7 +823,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or 'Вакансия курьера'
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    await message.answer(\"Ищу вакансии…\")  # fixed
+    await message.answer("Ищу вакансии…")  # fixed
 '.join(lines) if lines else '—', disable_web_page_preview=False)
 # ==== end patch ====
 
