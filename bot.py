@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.2 top5+detail+salary+no-counters"
+BOT_VERSION = "v1.2.1 fix on_category call → send_vacancy_list(..., lang, desired, category)"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -472,7 +472,16 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     else:
         await call.message.answer(t(lang, "found_some"))
 
-    await send_vacancy_list(call.message, results[:5], category)
+    data = await state.get_data()
+
+
+    desired = int((data.get("salary") or data.get("desired") or 0) or 0)
+
+
+    lang = data.get("lang") or "ru"
+
+
+    await send_vacancy_list(call.message, results[:5], lang, desired, category)
 
 async def send_vacancy_list(message: Message, items: List[Vacancy], category: Optional[str] = None):
     # Строим список строк вакансий
