@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.2.1 fix on_category call → send_vacancy_list(..., lang, desired, category)"
+BOT_VERSION = "v1.3 TOP5 + dedup + show max as «до … ₽»"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -408,6 +408,16 @@ async def on_salary(message: Message, state: FSMContext):
     await message.answer(t(lang, "choose_category"), reply_markup=category_keyboard(lang))
 
 @dp.callback_query(F.data.startswith("cat:"))
+# === helpers: dedup + salary score (TOP-5) ===
+_vacid_rx = re.compile(r"/vacancies/(\d+)")
+def _vac_id(url: str) -> str:
+    m = _vacid_rx.search(url or "")
+    return m.group(1) if m else (url or "")
+
+def _salary_score(v) -> int:
+    mx = v.salary_max if v.salary_max is not None else (v.salary_min or 0)
+    return int(mx or 0)
+
 async def on_category(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -481,7 +491,7 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     lang = data.get("lang") or "ru"
 
 
-    await send_vacancy_list(call.message, results[:5], lang, desired, category)
+    await send_vacancy_list(call.message, top5, lang, desired, category)
 
 async def send_vacancy_list(message: Message, items: List[Vacancy], category: Optional[str] = None):
     # Строим список строк вакансий
