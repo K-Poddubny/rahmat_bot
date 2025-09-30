@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.4.8 stable send_vacancy_list + join fix"
+BOT_VERSION = "v1.4.9 stable send_vacancy_list + global join fix"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -547,6 +547,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
     await message.answer(text, disable_web_page_preview=False)
 
 
+
 def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
     """
     Чистый и безопасный парсер списка https://rahmat.ru/vacancies.
@@ -850,81 +851,12 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         mx = getattr(v, 'salary_max', None)
         if mx is None:
             mx = getattr(v, 'salary_min', None)
-        if mx is None:
-            salary_str = '—'
-        else:
-            salary_str = f"до {mx:,} ₽".replace(',', ' ')
-        city = getattr(v, 'city', None) or 'Москва'
-        title = getattr(v, 'title', None) or 'Вакансия курьера'
-        url = getattr(v, 'url', '')
+        salary_str = '—' if mx is None else f"до {mx:,} ₽".replace(',', ' ')
+        city  = getattr(v, 'city', None) or 'Москва'
+        title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
+        url   = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    await message.answer("Ищу вакансии…")  # fixed
-
-# ==== end patch ====
-
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    try:
-        me = await bot.get_me()
-        logging.info(f"✅ Запускаю @{me.username} (id={me.id}) | {BOT_VERSION}")
-    except Exception as e:
-        logging.warning(f"get_me failed: {e}")
-    try:
-        await bot.delete_webhook(drop_pending_updates=False)
-    except Exception as e:
-        logging.warning(f"delete_webhook: {e}")
-    logging.info("RU choose_salary: " + I18N["ru"]["choose_salary"])
-    logging.info("UZ choose_salary: " + I18N["uz"]["choose_salary"])
-    logging.info("KY choose_salary: " + I18N["ky"]["choose_salary"])
-    logging.info("TG choose_salary: " + I18N["tg"]["choose_salary"])
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("Бот остановлен")
-
-
-async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
-    lines = []
-    for v in items:
-        mx = getattr(v, 'salary_max', None)
-        if mx is None:
-            mx = getattr(v, 'salary_min', None)
-        if mx is None:
-            salary_str = '—'
-        else:
-            salary_str = f"до {mx:,} ₽".replace(',', ' ')
-        city = getattr(v, 'city', None) or 'Москва'
-        title = getattr(v, 'title', None) or 'Вакансия курьера'
-        url = getattr(v, 'url', '')
-        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '\n'.join(lines) if lines else '—'
+    text = '
+'.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
-
-
-async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
-    lines = []
-    for v in items:
-        mx = getattr(v, 'salary_max', None)
-        if mx is None:
-            mx = getattr(v, 'salary_min', None)
-        if mx is None:
-            salary_str = '—'
-        else:
-            salary_str = f"до {mx:,} ₽".replace(',', ' ')
-        city = getattr(v, 'city', None) or 'Москва'
-        title = getattr(v, 'title', None) or 'Вакансия курьера'
-        url = getattr(v, 'url', '')
-        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '\n'.join(lines) if lines else '—'
-    await message.answer(text, disable_web_page_preview=False)
-
-
-# UZB_CYR_HINT: Кириллик вариант (если понадобится переключить):
-# "hello": "Ассалому алайкум! Мен сизга Москвада иш топишда ёрдам бера оламан. Аввал тилни танланг:",
-# "choose_city": "Қайси шаҳарда ишламоқчисиз? Ҳозирча Москва мавжуд.",
-# "choose_salary": "Қанча маош хоҳлайсиз? Суммани рублларда рақам билан ёзинг, масалан 90 000:",
-# va hokazo…
