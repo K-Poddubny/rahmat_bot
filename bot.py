@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.5.1 final join cleanup + stable send_vacancy_list"
+BOT_VERSION = "v1.5.3 compat main() added"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -529,6 +529,7 @@ async def on_category(call: CallbackQuery, state: FSMContext):
 
 
 
+    top5 = results[:5]
     await send_vacancy_list(call.message, top5, lang, desired, category)
 
 async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
@@ -857,3 +858,33 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
 
     await message.answer(text, disable_web_page_preview=False)
 
+
+
+# ====== Compat entry point (auto-added) ======
+import asyncio as _asyncio
+
+async def main():
+    """Compatibility entry point for external runners/diagnostics."""
+    dp = globals().get('dp')
+    _bot = globals().get('bot')
+
+    # aiogram v3+ style: dp.start_polling(bot)
+    if dp is not None and _bot is not None and hasattr(dp, "start_polling"):
+        await dp.start_polling(_bot)
+        return
+
+    # aiogram v2 style: executor.start_polling(dp)
+    try:
+        from aiogram import executor as _executor  # type: ignore
+    except Exception:
+        _executor = None
+    if dp is not None and _executor is not None:
+        loop = _asyncio.get_event_loop()
+        # executor.start_polling блокирующий — завернём в thread pool
+        await loop.run_in_executor(None, lambda: _executor.start_polling(dp, skip_updates=True))
+        return
+
+    raise RuntimeError("Compat main(): dp/bot not found")
+
+if __name__ == "__main__":  # локальный запуск файла
+    _asyncio.run(main())
