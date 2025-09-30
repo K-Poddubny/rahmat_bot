@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 # Загружаем переменные окружения (.env)
 load_dotenv()
+BOT_VERSION = "v0.4 salary-parse + pretty-example"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -350,7 +351,7 @@ def search_vacancies(city: str, min_salary: int, category: str, max_pages: int =
 # Хендлеры бота
 # -------------------------------------------------------------
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML")))
 dp = Dispatcher()
 
 @dp.message(CommandStart())
@@ -383,11 +384,13 @@ async def on_geo(call: CallbackQuery, state: FSMContext):
     await call.message.answer(t(lang, "choose_salary"))
 
 @dp.message(FindJob.salary)
+
+@dp.message(FindJob.salary)
 async def on_salary(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     raw = message.text or ""
-    # Удаляем всё, что не цифра (включая неразрывные пробелы и знаки)
+    # Удаляем всё, что не цифры (включая пробелы, неразрывные, точки, дефисы)
     digits = re.sub(r"\D+", "", raw)
     if len(digits) < 4:
         await message.answer(t(lang, "salary_bad"))
@@ -395,9 +398,10 @@ async def on_salary(message: Message, state: FSMContext):
     desired = int(digits)
     await state.update_data(salary=desired)
 
-    # Выбор категории
+    # Переходим к выбору категории
     await state.set_state(FindJob.category)
     await message.answer(t(lang, "choose_category"), reply_markup=category_keyboard(lang))
+
 
 @dp.callback_query(F.data.startswith("cat:"))(F.data.startswith("cat:"))
 async def on_category(call: CallbackQuery, state: FSMContext):
@@ -454,6 +458,15 @@ async def send_vacancy_list(message: Message, items: List[Vacancy], lang: str, d
     await message.answer(text, disable_web_page_preview=False)
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
+    me = await bot.get_me()
+    logging.info(f"✅ Запускаю бота @{me.username} (id={me.id}) | {BOT_VERSION}")
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+    except Exception as e:
+        logging.warning(f"delete_webhook: {e}")
+    # Выведем текущую RU-подсказку про зарплату, чтобы убедиться в обновлении
+    logging.info("RU choose_salary: " + I18N['ru']['choose_salary'])
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
