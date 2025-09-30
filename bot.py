@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.0 robust HTTP (retries+timeouts) + logging"
+BOT_VERSION = "v1.0.1 url fix"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -221,7 +221,7 @@ def get_category_total_for_listpage(category: str) -> Optional[int]:
 # ====== end helpers ======
 
 BASE_URL = "https://rahmat.ru"
-VACANCIES_URL =
+VACANCIES_URL = "https://rahmat.ru/vacancies"
 
 def get_html(url: str, timeout: int = 8) -> str:
     try:
