@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.4.9 stable send_vacancy_list + global join fix"
+BOT_VERSION = "v1.5.0 solid send_vacancy_list + global join heal"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -542,11 +542,8 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
         url   = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '
-'.join(lines) if lines else '—'
+    text = '\n'.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
-
-
 
 def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
     """
@@ -856,7 +853,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
         url   = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '
+    text = '\n'.join(lines) if lines else '—'
 '.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
