@@ -20,7 +20,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.7.2 fix send_vacancy_list block (closed quotes)"
+BOT_VERSION = "v0.7.3 clean send_vacancy_list (fixed string) "
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -462,19 +462,15 @@ async def send_vacancy_list(message: Message, items: List[Vacancy], category: st
         city = v.city or "Москва"
         lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
 
-    text = "Вот подходящие вакансии:\n\n" + ("\n".join(lines) if lines else "—")\n\n" + ("\n".join(lines) if lines else "—")
+    text = "Вот подходящие вакансии:\n\n" + ("\n".join(lines) if lines else "—")
 
-" + ("
-".join(lines) if lines else "—")
-
-    # Футер со ссылкой на общую выдачу по категории
+    # Футер со ссылкой на общую выдачу
     ru_name = CAT_LABELS.get("ru", {}).get(category or "", "")
     suffix = f" {ru_name.lower()}" if ru_name else ""
-    text += f"
-
-<i>Здесь можно ознакомиться со всеми вакансиями{suffix}:</i> <a href='{VACANCIES_URL}'>{VACANCIES_URL}</a>"
+    text += f"\n\n<i>Здесь можно ознакомиться со всеми вакансиями{suffix}:</i> <a href='{VACANCIES_URL}'>{VACANCIES_URL}</a>"
 
     await message.answer(text, disable_web_page_preview=False)
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     try:
