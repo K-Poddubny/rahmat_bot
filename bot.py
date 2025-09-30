@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.3.5 unescape quotes in message.answer"
+BOT_VERSION = "v1.3.6 fix send_vacancy_list + greet line"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -374,7 +374,7 @@ dp = Dispatcher()
 @dp.message(CommandStart())
 async def on_start(message: Message, state: FSMContext):
     await state.set_state(FindJob.lang)
-    await message.answer("Здравствуйте! / Salom! / Салам! / Салом!", reply_markup=lang_keyboard()", disable_web_page_preview=False)
+    await message.answer("Здравствуйте! / Salom! / Салам! / Салом!", reply_markup=lang_keyboard(), disable_web_page_preview=False)
 @dp.callback_query(F.data.startswith("lang:"))
 async def on_lang(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":", 1)[1]
@@ -503,14 +503,12 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         else:
             salary_str = f"до {mx:,} ₽".replace(',', ' ')
         city = getattr(v, 'city', None) or 'Москва'
-        title = getattr(v, 'title', None) or 'Вакансия курьера'
+        title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    await message.answer("Ищу вакансии…")  # fixed
-'.join(lines) if lines else '—', disable_web_page_preview=False)
-
-
-# ==== patched search_vacancies (v1.1 clean) ====
+    text = '
+'.join(lines) if lines else '—'
+    await message.answer(text, disable_web_page_preview=False)
 
 def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
     """
@@ -824,7 +822,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
     await message.answer("Ищу вакансии…")  # fixed
-'.join(lines) if lines else '—', disable_web_page_preview=False)
+
 # ==== end patch ====
 
 async def main():
