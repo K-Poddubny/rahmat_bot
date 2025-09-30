@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.4.4 remove \1 artifact + normalize join"
+BOT_VERSION = "v1.4.5 solid fix for broken join line"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -517,7 +517,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-text = '
+    text = ''  # fixed
 '.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
@@ -874,7 +874,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or 'Вакансия курьера'
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-text = '
+    text = ''  # fixed
 '.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
@@ -894,7 +894,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or 'Вакансия курьера'
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-text = '
+    text = ''  # fixed
 '.join(lines) if lines else '—'
     await message.answer(text, disable_web_page_preview=False)
 
