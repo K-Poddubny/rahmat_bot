@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.3.2 helpers@top, TOP-5, dedup, max→до ₽ (syntax fix)"
+BOT_VERSION = "v1.3.4 fix broken message.answer quotes"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -507,7 +507,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or 'Вакансия курьера'
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    await message.answer('
+    await message.answer(\"Ищу вакансии…\")  # fixed
 '.join(lines) if lines else '—', disable_web_page_preview=False)
 
 
@@ -824,7 +824,7 @@ async def send_vacancy_list(message, items, lang: str, desired: int, category: s
         title = getattr(v, 'title', None) or 'Вакансия курьера'
         url = getattr(v, 'url', '')
         lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    await message.answer('
+    await message.answer(\"Ищу вакансии…\")  # fixed
 '.join(lines) if lines else '—', disable_web_page_preview=False)
 # ==== end patch ====
 
