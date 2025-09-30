@@ -20,7 +20,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.7.1 fix send_vacancy_list + footer by category"
+BOT_VERSION = "v0.7.2 fix send_vacancy_list block (closed quotes)"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -447,20 +447,11 @@ async def on_category(call: CallbackQuery, state: FSMContext):
         await call.message.answer(t(lang, "found_some"))
     await send_vacancy_list(call.message, results[:5], category)
 
-async def send_vacancy_list(message: Message, items: List[Vacancy]):
-    # Шапка: количество найденных вакансий по категории (если получилось спарсить)
-    lang_hint = "ru"
-    cat_total = None
-    # пытаемся угадать текущую категорию по последнему сообщению (не идеально, но работает)
-    try:
-        # ничего не знаем о state в этом месте, поэтому цену/категорию уже сообщали ранее
-        cat_total = None
-    except Exception:
-        pass
 
+async def send_vacancy_list(message: Message, items: List[Vacancy], category: str | None = None):
+    # Строим список строк вакансий
     lines = []
     for v in items:
-        # Красиво форматируем зарплату
         if v.salary_min is None and v.salary_max is None:
             salary_str = "—"
         elif v.salary_min is not None and v.salary_max is not None:
@@ -471,22 +462,19 @@ async def send_vacancy_list(message: Message, items: List[Vacancy]):
         city = v.city or "Москва"
         lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
 
-    text = ""
-    if lines:
-        text += "Вот подходящие вакансии:
+    text = "Вот подходящие вакансии:
 
-"
-        text += "
-".join(lines)
+" + ("
+".join(lines) if lines else "—")
 
-    # Внизу — ссылка на общую выдачу
-    text += "
+    # Футер со ссылкой на общую выдачу по категории
+    ru_name = CAT_LABELS.get("ru", {}).get(category or "", "")
+    suffix = f" {ru_name.lower()}" if ru_name else ""
+    text += f"
 
-<i>Здесь можно ознакомиться со всеми вакансиями: </i>"
-    text += f"<a href='{VACANCIES_URL}'>список вакансий на rahmat.ru</a>"
+<i>Здесь можно ознакомиться со всеми вакансиями{suffix}:</i> <a href='{VACANCIES_URL}'>{VACANCIES_URL}</a>"
 
     await message.answer(text, disable_web_page_preview=False)
-
 async def main():
     logging.basicConfig(level=logging.INFO)
     try:
