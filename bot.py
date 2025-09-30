@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.3.1 helpers@top + TOP5 + dedup + max→до ₽"
+BOT_VERSION = "v1.3.2 helpers@top, TOP-5, dedup, max→до ₽ (syntax fix)"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -409,14 +409,14 @@ async def on_salary(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("cat:"))
 
-_vacid_rx = re.compile(r"/vacancies/(\d+)")
-def _vac_id(url: str) -> str:
-    m = _vacid_rx.search(url or "")
-    return m.group(1) if m else (url or "")
+# _vacid_rx = re.compile(r"/vacancies/(\d+)")
+# def _vac_id(url: str) -> str:
+#     m = _vacid_rx.search(url or "")
+#     return m.group(1) if m else (url or "")
 
-def _salary_score(v) -> int:
-    mx = v.salary_max if v.salary_max is not None else (v.salary_min or 0)
-    return int(mx or 0)
+# def _salary_score(v) -> int:
+#     mx = v.salary_max if v.salary_max is not None else (v.salary_min or 0)
+#     return int(mx or 0)
 
 async def on_category(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -493,28 +493,22 @@ async def on_category(call: CallbackQuery, state: FSMContext):
 
     await send_vacancy_list(call.message, top5, lang, desired, category)
 
-async def send_vacancy_list(message: Message, items: List[Vacancy], category: Optional[str] = None):
-    # Строим список строк вакансий
+async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
     lines = []
     for v in items:
-        if v.salary_min is None and v.salary_max is None:
-            salary_str = "—"
-        elif v.salary_min is not None and v.salary_max is not None:
-            salary_str = f"{v.salary_min:,}–{v.salary_max:,}".replace(",", " ")
+        mx = getattr(v, 'salary_max', None)
+        if mx is None:
+            mx = getattr(v, 'salary_min', None)
+        if mx is None:
+            salary_str = '—'
         else:
-            val = v.salary_max or v.salary_min
-            salary_str = f"{val:,}".replace(",", " ")
-        city = v.city or "Москва"
-        lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
-
-    text = "Вот подходящие вакансии:\n\n" + ("\n".join(lines) if lines else "—")
-
-    # Футер со ссылкой на общую выдачу
-    ru_name = CAT_LABELS.get("ru", {}).get(category or "", "")
-    suffix = f" {ru_name.lower()}" if ru_name else ""
-    text += f"\n\n<i>Здесь можно ознакомиться со всеми вакансиями{suffix}:</i> <a href='{VACANCIES_URL}'>{VACANCIES_URL}</a>"
-
-    await message.answer(text, disable_web_page_preview=False)
+            salary_str = f"до {mx:,} ₽".replace(',', ' ')
+        city = getattr(v, 'city', None) or 'Москва'
+        title = getattr(v, 'title', None) or 'Вакансия курьера'
+        url = getattr(v, 'url', '')
+        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
+    await message.answer('
+'.join(lines) if lines else '—', disable_web_page_preview=False)
 
 
 # ==== patched search_vacancies (v1.1 clean) ====
@@ -666,15 +660,27 @@ def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vaca
 
 # ==== patch: top5 + detail links + salary parser (v1.2) ====
 from urllib.parse import urljoin
-# === helpers: dedup + salary score (TOP-5) ===
+# === helpers: TOP-5 (dedup by id) + salary score ===
 _vacid_rx = re.compile(r"/vacancies/(\d+)")
 def _vac_id(url: str) -> str:
     m = _vacid_rx.search(url or "")
     return m.group(1) if m else (url or "")
 
 def _salary_score(v) -> int:
-    mx = v.salary_max if getattr(v, "salary_max", None) is not None else getattr(v, "salary_min", 0)
+    mx = getattr(v, "salary_max", None)
+    if mx is None:
+        mx = getattr(v, "salary_min", 0)
     return int(mx or 0)
+
+# === helpers: dedup + salary score (TOP-5) ===
+# _vacid_rx = re.compile(r"/vacancies/(\d+)")
+# def _vac_id(url: str) -> str:
+#     m = _vacid_rx.search(url or "")
+#     return m.group(1) if m else (url or "")
+
+# def _salary_score(v) -> int:
+#     mx = v.salary_max if getattr(v, "salary_max", None) is not None else getattr(v, "salary_min", 0)
+#     return int(mx or 0)
 
 
 def _pretty_salary(min_v, max_v):
@@ -804,20 +810,22 @@ def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vaca
         logging.exception("search_vacancies error: %s", e)
         return []
 
-async def send_vacancy_list(message: Message, items: List[Vacancy], lang: str, desired: int, category: str = ""):
-    total = len(items)
-    top = items[:5]
+async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
     lines = []
-    for v in top:
-        salary = _pretty_salary(v.salary_min, v.salary_max)
-        city = v.city or "Москва"
-        title = _norm_text(v.title) if v.title else ("Вакансия курьера" if category=="delivery" else "Вакансия")
-        lines.append(f"• <a href='{v.url}'>{title}</a> — {salary} ({city})")
-    header = "Вот подходящие вакансии:\n\n" if top else "К сожалению, подходящих вакансий не нашлось.\n\n"
-    text = header + ("\n".join(lines) if lines else "")
-    cat_ru = {"delivery":"доставки","driver":"водителей","construction":"строительства","helper":"разнорабочих"}.get(category or "", "на сайте")
-    text = (f"Найдено всего: {total}\n\n" if total else "") + text + f"\n\nЗдесь можно ознакомиться со всеми вакансиями {cat_ru}: {VACANCIES_URL}"
-    await message.answer(text, disable_web_page_preview=False)
+    for v in items:
+        mx = getattr(v, 'salary_max', None)
+        if mx is None:
+            mx = getattr(v, 'salary_min', None)
+        if mx is None:
+            salary_str = '—'
+        else:
+            salary_str = f"до {mx:,} ₽".replace(',', ' ')
+        city = getattr(v, 'city', None) or 'Москва'
+        title = getattr(v, 'title', None) or 'Вакансия курьера'
+        url = getattr(v, 'url', '')
+        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
+    await message.answer('
+'.join(lines) if lines else '—', disable_web_page_preview=False)
 # ==== end patch ====
 
 async def main():
