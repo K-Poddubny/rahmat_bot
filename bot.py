@@ -351,7 +351,7 @@ def search_vacancies(city: str, min_salary: int, category: str, max_pages: int =
 # Хендлеры бота
 # -------------------------------------------------------------
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML")))
+bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 @dp.message(CommandStart())
