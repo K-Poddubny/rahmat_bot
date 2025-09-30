@@ -1,11 +1,11 @@
 # bot.py
 # -*- coding: utf-8 -*-
-# -------------------------------------------------------------
-# Телеграм-бот для поиска вакансий на rahmat.ru/vacancies
-# Диалог на выбранном языке, парсер вакансий, топ-5 по зарплате
-# -------------------------------------------------------------
+# Телеграм-бот: поиск вакансий на rahmat.ru/vacancies
+# Поддержка RU/UZ/KY/TG, парсинг зарплаты с любыми пробелами,
+# aiogram 3.7+ (DefaultBotProperties), логирование и устойчивый парсер
 
 import asyncio
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -14,28 +14,20 @@ from typing import List, Optional, Dict, Tuple
 import requests
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup,
-                           InlineKeyboardButton)
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения (.env)
 load_dotenv()
-BOT_VERSION = "v0.4 salary-parse + pretty-example"
+BOT_VERSION = "v0.5 salary-parse-all-langs + aiogram37"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
 
-import logging
-
-# -------------------------------------------------------------
-# Локализация (простая): тексты на 4 языках
-# Ключи: 'ru', 'uz', 'ky', 'tg'
-# -------------------------------------------------------------
-
+# ---------- Локализация ----------
 I18N: Dict[str, Dict[str, str]] = {
     "ru": {
         "start": "Здравствуйте! Выберите язык интерфейса:",
@@ -59,7 +51,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "start": "Salom! Interfeys tilini tanlang:",
         "help": "Men eng yuqori maoshli ishlarni topishga yordam beraman.",
         "choose_geo": "Shaharni tanlang (hozircha faqat Moskva):",
-        "choose_salary": "Qancha maosh xohlaysiz? Rubl miqdorini yozing, masalan 90 000:",
+        "choose_salary": "Qancha maosh xohlaysiz? Summani rublda raqam bilan yozing, masalan 90 000:",
         "choose_category": "Qanday ish istaysiz? Kategoriyani tanlang:",
         "searching": "Ish o‘rinlarini qidirmoqdaman…",
         "found_more": "Ajoyib! Siz xohlaganingizdan ham yuqori maoshli ishlar topildi.",
@@ -71,13 +63,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "cat_driver": "Haydovchi",
         "cat_construction": "Qurilish",
         "cat_helper": "Yordamchi ishchi",
-        "salary_bad": "Iltimos, rubl miqdorini raqam bilan yuboring (masalan, 90000).",
+        "salary_bad": "Iltimos, rublda raqam yuboring (masalan, 90 000).",
     },
     "ky": {
         "start": "Салам! Интерфейс тилин тандаңыз:",
         "help": "Эң жогорку айлыктагы жумуштарды табууга жардам берем.",
         "choose_geo": "Шаарды тандаңыз (азырынча Москва гана):",
-        "choose_salary": "Канча айлык каалайсыз? Санды рубль менен жазыңыз, мисалы 90 000:",
+        "choose_salary": "Канча айлык каалайсыз? Айлыкты рубль менен жазыңыз, мисалы 90 000:",
         "choose_category": "Кандай жумуш? Категорияны тандаңыз:",
         "searching": "Вакансияларды издеп жатам…",
         "found_more": "Супер! Каалаганыңыздан да жогору айлык менен табылды.",
@@ -89,7 +81,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "cat_driver": "Айдоочу",
         "cat_construction": "Курулуш",
         "cat_helper": "Ар түрдүү жумушчу",
-        "salary_bad": "Санды жибериңиз — айлыкты рубль менен (мисалы, 90000).",
+        "salary_bad": "Санды жибериңиз — айлыкты рубль менен (мисалы, 90 000).",
     },
     "tg": {
         "start": "Салом! Забони интерфейсро интихоб кунед:",
@@ -107,7 +99,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "cat_driver": "Ронанда",
         "cat_construction": "Сохтмон",
         "cat_helper": "Коргари умумӣ",
-        "salary_bad": "Лутфан рақам фиристед — маош дар рубл (масалан, 90000).",
+        "salary_bad": "Лутфан рақам фиристед — маош дар рубл (масалан, 90 000).",
     },
 }
 
@@ -118,7 +110,6 @@ SUPPORTED_LANGS = [
     ("ru", "Русский"),
 ]
 
-# Категории (кнопки) — показ на языке пользователя, но внутренняя метка общая
 CATEGORIES = [
     ("delivery", ["Доставка", "Yetkazib", "Жеткир", "Расон"], ["курьер", "доставка"]),
     ("driver", ["Водитель", "Haydovchi", "Айдоочу", "Ронанда"], ["водитель", "такси", "экспедитор"]),
@@ -126,7 +117,6 @@ CATEGORIES = [
     ("helper", ["Разнорабочий", "Yordamchi", "Ар түрдүү", "Коргари"], ["разнораб", "грузчик", "подсоб", "рабочий"]),
 ]
 
-# Маппинг для показа подписей категорий на языке пользователя
 CAT_LABELS = {
     "ru": {"delivery": "Доставка", "driver": "Водитель", "construction": "Строительство", "helper": "Разнорабочий"},
     "uz": {"delivery": "Yetkazib berish", "driver": "Haydovchi", "construction": "Qurilish", "helper": "Yordamchi ishchi"},
@@ -134,19 +124,11 @@ CAT_LABELS = {
     "tg": {"delivery": "Расондан", "driver": "Ронанда", "construction": "Сохтмон", "helper": "Коргари умумӣ"},
 }
 
-# -------------------------------------------------------------
-# Состояния диалога
-# -------------------------------------------------------------
-
 class FindJob(StatesGroup):
     lang = State()
     geo = State()
     salary = State()
     category = State()
-
-# -------------------------------------------------------------
-# Модель вакансии (внутреннее представление)
-# -------------------------------------------------------------
 
 @dataclass
 class Vacancy:
@@ -158,16 +140,11 @@ class Vacancy:
 
     @property
     def salary_sort_key(self) -> int:
-        """Ключ сортировки по зарплате (берём верхнюю границу, иначе нижнюю, иначе 0)."""
         if self.salary_max is not None:
             return self.salary_max
         if self.salary_min is not None:
             return self.salary_min
         return 0
-
-# -------------------------------------------------------------
-# Утилиты локализации и клавиатур
-# -------------------------------------------------------------
 
 def t(lang: str, key: str) -> str:
     return I18N.get(lang, I18N["ru"]).get(key, key)
@@ -180,33 +157,25 @@ def geo_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(lang, "geo_moscow"), callback_data="geo:moscow")]])
 
 def category_keyboard(lang: str) -> InlineKeyboardMarkup:
-    row = []
-    kb = []
+    row, kb = [], []
     for cid, _, _ in CATEGORIES:
         row.append(InlineKeyboardButton(text=CAT_LABELS[lang][cid], callback_data=f"cat:{cid}"))
         if len(row) == 2:
-            kb.append(row)
-            row = []
-    if row:
-        kb.append(row)
+            kb.append(row); row = []
+    if row: kb.append(row)
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-# -------------------------------------------------------------
-# Парсер rahmat.ru/vacancies
-# -------------------------------------------------------------
-
+# ---------- Парсер rahmat.ru ----------
 BASE_URL = "https://rahmat.ru"
 VACANCIES_URL = f"{BASE_URL}/vacancies"
 HEADERS = {
-    # Делаем вид, что это обычный браузер
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
     "Accept-Language": "ru-RU,ru;q=0.9",
 }
 
-SALARY_RE = re.compile(r"(\\d[\\d\\s]{3,})")  # извлекает длинные числа с пробелами
+SALARY_RE = re.compile(r"(\d[\d\s]{3,})")
 CITY_WORDS = ["Москва", "Moskva", "Moscow"]
 
-# Словари ключевых слов по категориям (для фильтрации по заголовку/тексту)
 CATEGORY_KEYWORDS = {
     "delivery": ["достав", "курьер", "курьером"],
     "driver": ["водитель", "такси", "экспедитор", "шофер", "шофёр"],
@@ -224,101 +193,65 @@ def extract_ints(text: str) -> List[int]:
     return nums
 
 def parse_salary(text: str) -> Tuple[Optional[int], Optional[int]]:
-    """Парсим зарплату из строки. Возвращает (min, max)."""
     nums = extract_ints(text)
-    if not nums:
-        return None, None
-    if len(nums) == 1:
-        return nums[0], None
-    # если несколько чисел — берём минимум и максимум
+    if not nums: return None, None
+    if len(nums) == 1: return nums[0], None
     return min(nums), max(nums)
 
 def looks_like_city(text: str) -> Optional[str]:
-    if not text:
-        return None
+    if not text: return None
     for w in CITY_WORDS:
-        if w.lower() in text.lower():
-            return "Москва"
+        if w.lower() in text.lower(): return "Москва"
     return None
 
 def match_category(cat: str, text: str) -> bool:
     text_l = (text or "").lower()
-    for kw in CATEGORY_KEYWORDS.get(cat, []):
-        if kw in text_l:
-            return True
-    return False
+    return any(kw in text_l for kw in CATEGORY_KEYWORDS.get(cat, []))
 
-def fetch_vacancy_cards(pages: int = 3) -> List[BeautifulSoup]:
-    """Загружает первые N страниц списка вакансий и возвращает найденные карточки.
-    # ВАЖНО: селекторы
-    Мы пытаемся найти блоки карточек по нескольким вариантам классов/тегов,
-    чтобы пережить изменения вёрстки.
-    """
+def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
     cards = []
     session = requests.Session()
     for page in range(1, pages + 1):
-        url = VACANCIES_URL
-        if page > 1:
-            url = f"{VACANCIES_URL}?page={page}"
+        url = VACANCIES_URL if page == 1 else f"{VACANCIES_URL}?page={page}"
         try:
             resp = session.get(url, headers=HEADERS, timeout=15)
-            if resp.status_code != 200:
-                continue
+            if resp.status_code != 200: continue
         except Exception:
             continue
         soup = BeautifulSoup(resp.text, "lxml")
-        # варианты контейнеров карточек
         candidates = []
-        candidates.extend(soup.select("div.vacancy-card"))  # частый паттерн
+        candidates.extend(soup.select("div.vacancy-card"))
         candidates.extend(soup.select("article.vacancy"))
         candidates.extend(soup.select("div[class*='vacancy']"))
-        candidates.extend(soup.select("a[href*='/vac']"))  # запасной вариант по ссылкам
-        # убираем дубли
-        seen = set()
-        cleaned = []
+        candidates.extend(soup.select("a[href*='/vac']"))
+        seen, cleaned = set(), []
         for c in candidates:
             key = str(c)
-            if key in seen:
-                continue
-            seen.add(key)
-            cleaned.append(c)
+            if key in seen: continue
+            seen.add(key); cleaned.append(c)
         cards.extend(cleaned)
     return cards
 
 def card_to_vacancy(card: BeautifulSoup) -> Optional[Vacancy]:
-    # Пытаемся достать заголовок
     title_tag = card.select_one("a[href*='/vac']") or card.select_one("h2 a") or card.select_one("h3 a")
     if not title_tag:
-        # Иногда карточка — это сама ссылка
         if card.name == "a" and card.get("href"):
-            title_text = card.get_text(strip=True)
-            url = card.get("href")
+            title_text = card.get_text(strip=True); url = card.get("href")
         else:
             return None
     else:
-        title_text = title_tag.get_text(strip=True)
-        url = title_tag.get("href") or ""
+        title_text = title_tag.get_text(strip=True); url = title_tag.get("href") or ""
+    if url and url.startswith("/"): url = BASE_URL + url
+    if not url.startswith("http"): url = BASE_URL + "/" + url.lstrip("/")
 
-    if url and url.startswith("/"):
-        url = BASE_URL + url
-    if not url.startswith("http"):
-        url = BASE_URL + "/" + url.lstrip("/")
-
-    # Ищем участок текста с зарплатой
-    # Часто бывает в блоках с классами salary/pay/compensation
-    salary_container = (
-        card.select_one("[class*='salary']") or card.select_one("[class*='pay']") or card.select_one("[class*='compens']")
-    )
+    salary_container = card.select_one("[class*='salary']") or card.select_one("[class*='pay']") or card.select_one("[class*='compens']")
     salary_text = salary_container.get_text(" ", strip=True) if salary_container else card.get_text(" ", strip=True)
     sal_min, sal_max = parse_salary(salary_text)
 
-    # Город
     city = None
     city_tag = card.select_one("[class*='city'], [class*='geo'], [class*='location']")
-    if city_tag:
-        city = looks_like_city(city_tag.get_text(" ", strip=True))
-    if not city:
-        city = looks_like_city(card.get_text(" ", strip=True))
+    if city_tag: city = looks_like_city(city_tag.get_text(" ", strip=True))
+    if not city: city = looks_like_city(card.get_text(" ", strip=True))
 
     return Vacancy(title=title_text, url=url, city=city, salary_min=sal_min, salary_max=sal_max)
 
@@ -327,36 +260,22 @@ def search_vacancies(city: str, min_salary: int, category: str, max_pages: int =
     results: List[Vacancy] = []
     for card in cards:
         v = card_to_vacancy(card)
-        if not v:
-            continue
-        # фильтр по городу (Москва)
-        if city == "Москва" and v.city and v.city != "Москва":
-            continue
-        # фильтр по категории (по ключевым словам в заголовке/тексте карточки)
+        if not v: continue
+        if city == "Москва" and v.city and v.city != "Москва": continue
         if not match_category(category, v.title):
-            # если в заголовке нет — попробуем по всему тексту карточки
-            if not match_category(category, card.get_text(" ", strip=True)):
-                continue
-        # фильтр по зарплате (если известна)
-        if v.salary_max is not None and v.salary_max < min_salary:
-            continue
-        if v.salary_max is None and v.salary_min is not None and v.salary_min < min_salary:
-            continue
+            if not match_category(category, card.get_text(" ", strip=True)): continue
+        if v.salary_max is not None and v.salary_max < min_salary: continue
+        if v.salary_max is None and v.salary_min is not None and v.salary_min < min_salary: continue
         results.append(v)
-    # сортируем по зарплате по убыванию
     results.sort(key=lambda x: x.salary_sort_key, reverse=True)
     return results
 
-# -------------------------------------------------------------
-# Хендлеры бота
-# -------------------------------------------------------------
-
+# ---------- Бот ----------
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def on_start(message: Message, state: FSMContext):
-    # Выбор языка
     await state.set_state(FindJob.lang)
     await message.answer("Здравствуйте! / Salom! / Салам! / Салом!", reply_markup=lang_keyboard())
 
@@ -365,7 +284,6 @@ async def on_lang(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":", 1)[1]
     await state.update_data(lang=lang)
     await call.message.edit_text(t(lang, "help"))
-    # Переходим к выбору гео
     await state.set_state(FindJob.geo)
     await call.message.answer(t(lang, "choose_geo"), reply_markup=geo_keyboard(lang))
 
@@ -373,24 +291,16 @@ async def on_lang(call: CallbackQuery, state: FSMContext):
 async def on_geo(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    geo_code = call.data.split(":", 1)[1]
-    if geo_code != "moscow":
-        # На всякий случай, но сейчас только Москва
-        pass
     await state.update_data(geo="Москва")
-
-    # Спрашиваем желаемую зарплату
     await state.set_state(FindJob.salary)
     await call.message.answer(t(lang, "choose_salary"))
-
-@dp.message(FindJob.salary)
 
 @dp.message(FindJob.salary)
 async def on_salary(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     raw = message.text or ""
-    # Удаляем всё, что не цифры (включая пробелы, неразрывные, точки, дефисы)
+    # Удаляем всё, что не цифры (поддерживаем пробелы/дефисы/точки/неразрывные)
     digits = re.sub(r"\D+", "", raw)
     if len(digits) < 4:
         await message.answer(t(lang, "salary_bad"))
@@ -398,31 +308,26 @@ async def on_salary(message: Message, state: FSMContext):
     desired = int(digits)
     await state.update_data(salary=desired)
 
-    # Переходим к выбору категории
     await state.set_state(FindJob.category)
     await message.answer(t(lang, "choose_category"), reply_markup=category_keyboard(lang))
 
-
-@dp.callback_query(F.data.startswith("cat:"))(F.data.startswith("cat:"))
+@dp.callback_query(F.data.startswith("cat:"))
 async def on_category(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     category = call.data.split(":", 1)[1]
     await state.update_data(category=category)
 
-    # Запускаем поиск
     await call.message.answer(t(lang, "searching"))
     try:
         city = data.get("geo", "Москва")
         desired = data.get("salary", 0)
         results = await asyncio.to_thread(search_vacancies, city, desired, category)
-    except Exception as e:
+    except Exception:
         await call.message.answer(t(lang, "error"))
         return
 
-    # Подготавливаем ответ
     if not results:
-        # ничего не нашли — попробуем ослабить фильтр по зарплате и показать хоть что-то
         try:
             relaxed = await asyncio.to_thread(search_vacancies, city, 0, category)
         except Exception:
@@ -454,19 +359,23 @@ async def send_vacancy_list(message: Message, items: List[Vacancy], lang: str, d
             salary_str = f"{val:,}".replace(",", " ")
         city = v.city or "Москва"
         lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
-    text = "\n".join(lines)
-    await message.answer(text, disable_web_page_preview=False)
+    await message.answer("\n".join(lines), disable_web_page_preview=False)
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    me = await bot.get_me()
-    logging.info(f"✅ Запускаю бота @{me.username} (id={me.id}) | {BOT_VERSION}")
+    try:
+        me = await bot.get_me()
+        logging.info(f"✅ Запускаю @{me.username} (id={me.id}) | {BOT_VERSION}")
+    except Exception as e:
+        logging.warning(f"get_me failed: {e}")
     try:
         await bot.delete_webhook(drop_pending_updates=False)
     except Exception as e:
         logging.warning(f"delete_webhook: {e}")
-    # Выведем текущую RU-подсказку про зарплату, чтобы убедиться в обновлении
-    logging.info("RU choose_salary: " + I18N['ru']['choose_salary'])
+    logging.info("RU choose_salary: " + I18N["ru"]["choose_salary"])
+    logging.info("UZ choose_salary: " + I18N["uz"]["choose_salary"])
+    logging.info("KY choose_salary: " + I18N["ky"]["choose_salary"])
+    logging.info("TG choose_salary: " + I18N["tg"]["choose_salary"])
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
