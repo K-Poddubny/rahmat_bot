@@ -20,7 +20,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.7 direct-detail-links + nice titles + salary range + total counter + footer link"
+BOT_VERSION = "v0.7.1 fix send_vacancy_list + footer by category"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -435,7 +435,7 @@ async def on_category(call: CallbackQuery, state: FSMContext):
             relaxed = []
         if relaxed:
             await call.message.answer(t(lang, "found_none"))
-            await send_vacancy_list(call.message, relaxed[:5])
+            await send_vacancy_list(call.message, relaxed[:5], category)
         else:
             await call.message.answer(t(lang, "error"))
         return
@@ -445,7 +445,7 @@ async def on_category(call: CallbackQuery, state: FSMContext):
         await call.message.answer(t(lang, "found_more"))
     else:
         await call.message.answer(t(lang, "found_some"))
-    await send_vacancy_list(call.message, results[:5])
+    await send_vacancy_list(call.message, results[:5], category)
 
 async def send_vacancy_list(message: Message, items: List[Vacancy]):
     # Шапка: количество найденных вакансий по категории (если получилось спарсить)
