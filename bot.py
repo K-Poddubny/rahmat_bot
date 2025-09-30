@@ -314,6 +314,11 @@ def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
         logging.warning("list empty html")
         return []
     logging.info(f"list html len={len(html)}")
+    html = get_html(VACANCIES_URL)
+    if not html:
+        logging.warning("list empty html")
+        return []
+    logging.info(f"list html len={len(html)}")
     soup = BeautifulSoup(html, "lxml")
         candidates = []
         candidates.extend(soup.select("div.vacancy-card"))
