@@ -850,3 +850,22 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Бот остановлен")
+
+
+async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
+    lines = []
+    for v in items:
+        mx = getattr(v, 'salary_max', None)
+        if mx is None:
+            mx = getattr(v, 'salary_min', None)
+        if mx is None:
+            salary_str = '—'
+        else:
+            salary_str = f"до {mx:,} ₽".replace(',', ' ')
+        city = getattr(v, 'city', None) or 'Москва'
+        title = getattr(v, 'title', None) or 'Вакансия курьера'
+        url = getattr(v, 'url', '')
+        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
+    text = '\n'.join(lines) if lines else '—'
+    await message.answer(text, disable_web_page_preview=False)
+
