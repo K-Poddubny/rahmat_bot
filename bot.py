@@ -20,7 +20,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.6 precise-salary (₽/руб) + ignore-counters"
+BOT_VERSION = "v0.7 direct-detail-links + nice titles + salary range + total counter + footer link"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -164,6 +164,59 @@ def category_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 # ---------------- Парсер rahmat.ru ----------------
+
+# ====== helpers for details & counters ======
+def fetch_detail_title_salary(url: str) -> tuple[str|None, tuple[int|None,int|None]]:
+    """
+    Грузим страницу вакансии и аккуратно вытаскиваем h1 и зарплату (рядом с ₽/руб).
+    """
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            return None, (None, None)
+        soup = BeautifulSoup(r.text, "lxml")
+        h = soup.select_one("h1")
+        title = h.get_text(" ", strip=True) if h else None
+
+        # Ищем блоки с оплатой
+        pay_block = soup.find(string=re.compile(r"\b(₽|руб)\b"))
+        text = ""
+        if pay_block:
+            text = pay_block if isinstance(pay_block, str) else pay_block.get_text(" ", strip=True)
+        if not text:
+            text = soup.get_text(" ", strip=True)
+
+        sal = parse_salary(text)
+        return title, sal
+    except Exception:
+        return None, (None, None)
+
+def get_category_total_for_listpage(category: str) -> int|None:
+    """
+    На странице списка парсим «Курьер 718 вакансий» и т.п.
+    Возвращаем число вакансий для выбранной категории, если нашли.
+    """
+    try:
+        r = requests.get(VACANCIES_URL, headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            return None
+        soup = BeautifulSoup(r.text, "lxml")
+        txt = soup.get_text(" ", strip=True)
+
+        # берём русское имя категории
+        ru_label = CAT_LABELS.get("ru", {}).get(category, "")
+        # пробуем несколько шаблонов
+        m = re.search(fr"{ru_label}[^0-9]*(\d[\d\s]*)\s+ваканси", txt, flags=re.I)
+        if not m:
+            # иногда пишут «вакансий»/«вакансии»
+            m = re.search(fr"{ru_label}[^0-9]*(\d[\d\s]*)\s+ваканси[яий]", txt, flags=re.I)
+        if m:
+            return int(m.group(1).replace(" ", ""))
+        return None
+    except Exception:
+        return None
+# ====== end helpers ======
+
 BASE_URL = "https://rahmat.ru"
 VACANCIES_URL = f"{BASE_URL}/vacancies"
 HEADERS = {
@@ -247,24 +300,23 @@ def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
     return cards
 
 def card_to_vacancy(card: BeautifulSoup) -> Optional[Vacancy]:
-    """Преобразуем карточку в объект Vacancy."""
-    title_tag = card.select_one("a[href*='/vac']") or card.select_one("h2 a") or card.select_one("h3 a")
-    if title_tag:
-        title_text = title_tag.get_text(strip=True)
-        url = title_tag.get("href") or ""
-    else:
-        if card.name == "a" and card.get("href"):
-            title_text = card.get_text(strip=True)
-            url = card.get("href")
-        else:
-            return None
+    """Преобразуем карточку в объект Vacancy (заголовок, ссылка, зарплата из блока зарплаты)."""
+    title_tag = (card.select_one("h2") or card.select_one("h3") or
+                 card.select_one("a[href*='/vacancies/']") or card.select_one("a[href*='/vac/']"))
+    link_tag = card.select_one("a[href*='/vacancies/']") or card.select_one("a[href*='/vac/']")
 
+    if not link_tag:
+        return None
+
+    url = link_tag.get("href") or ""
     if url.startswith("/"):
         url = BASE_URL + url
     if not url.startswith("http"):
         url = BASE_URL + "/" + url.lstrip("/")
 
-    # Берём зарплату только из блоков salary/pay/compens — игнорируем счётчики «718 вакансий»
+    title_text = title_tag.get_text(" ", strip=True) if title_tag else link_tag.get_text(" ", strip=True)
+
+    # Берём зарплату только из очевидных блоков
     salary_container = (
         card.select_one("[class*='salary']") or
         card.select_one("[class*='pay']") or
@@ -280,7 +332,17 @@ def card_to_vacancy(card: BeautifulSoup) -> Optional[Vacancy]:
     if not city:
         city = looks_like_city(card.get_text(" ", strip=True))
 
-    return Vacancy(title=title_text, url=url, city=city, salary_min=sal_min, salary_max=sal_max)
+    vac = Vacancy(title=title_text, url=url, city=city, salary_min=sal_min, salary_max=sal_max)
+
+    # Если заголовок плохой или зарплаты нет — дотягиваем с детали
+    if not vac.title or "ваканси" in vac.title.lower() or (vac.salary_min is None and vac.salary_max is None):
+        dt_title, (dmin, dmax) = fetch_detail_title_salary(url)
+        if dt_title:
+            vac.title = dt_title
+        if (vac.salary_min is None and vac.salary_max is None) and (dmin or dmax):
+            vac.salary_min, vac.salary_max = dmin, dmax
+
+    return vac
 
 def search_vacancies(city: str, min_salary: int, category: str, max_pages: int = 4) -> List[Vacancy]:
     cards = fetch_vacancy_cards(max_pages)
@@ -356,6 +418,11 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     try:
         city = data.get("geo", "Москва")
         desired = data.get("salary", 0)
+        # Счётчик вакансий по категории (если удастся)
+        total = await asyncio.to_thread(get_category_total_for_listpage, category)
+        if total:
+            ru_name = CAT_LABELS["ru"][category]
+            await call.message.answer(f"Найдено всего {total:,} вакансий «{ru_name}»".replace(",", " "))
         results = await asyncio.to_thread(search_vacancies, city, desired, category)
     except Exception:
         await call.message.answer(t(lang, "error"))
@@ -381,8 +448,19 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     await send_vacancy_list(call.message, results[:5])
 
 async def send_vacancy_list(message: Message, items: List[Vacancy]):
+    # Шапка: количество найденных вакансий по категории (если получилось спарсить)
+    lang_hint = "ru"
+    cat_total = None
+    # пытаемся угадать текущую категорию по последнему сообщению (не идеально, но работает)
+    try:
+        # ничего не знаем о state в этом месте, поэтому цену/категорию уже сообщали ранее
+        cat_total = None
+    except Exception:
+        pass
+
     lines = []
     for v in items:
+        # Красиво форматируем зарплату
         if v.salary_min is None and v.salary_max is None:
             salary_str = "—"
         elif v.salary_min is not None and v.salary_max is not None:
@@ -391,9 +469,23 @@ async def send_vacancy_list(message: Message, items: List[Vacancy]):
             val = v.salary_max or v.salary_min
             salary_str = f"{val:,}".replace(",", " ")
         city = v.city or "Москва"
-        # красивый список ссылок
         lines.append(f"• <a href='{v.url}'>{v.title}</a> — {salary_str} ₽ ({city})")
-    await message.answer("\n".join(lines), disable_web_page_preview=False)
+
+    text = ""
+    if lines:
+        text += "Вот подходящие вакансии:
+
+"
+        text += "
+".join(lines)
+
+    # Внизу — ссылка на общую выдачу
+    text += "
+
+<i>Здесь можно ознакомиться со всеми вакансиями: </i>"
+    text += f"<a href='{VACANCIES_URL}'>список вакансий на rahmat.ru</a>"
+
+    await message.answer(text, disable_web_page_preview=False)
 
 async def main():
     logging.basicConfig(level=logging.INFO)
