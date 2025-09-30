@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.1.2 remove broken block"
+BOT_VERSION = "v1.2 top5+detail+salary+no-counters"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -643,6 +643,153 @@ def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vaca
     except Exception as e:
         logging.exception("search_vacancies error: %s", e)
         return []
+
+
+# ==== patch: top5 + detail links + salary parser (v1.2) ====
+from urllib.parse import urljoin
+
+def _pretty_salary(min_v, max_v):
+    def fmt(n):
+        if n is None: return None
+        return f"{n:,}".replace(",", " ")
+    if min_v is None and max_v is None:
+        return "—"
+    if min_v is not None and max_v is not None:
+        return f"{fmt(min_v)}–{fmt(max_v)} ₽"
+    val = max_v if max_v is not None else min_v
+    return f"{fmt(val)} ₽"
+
+_detail_href_rx = re.compile(r"^/vacancies/\d+(?:/)?(?:\?.*)?$")
+def _is_detail_href(href: str) -> bool:
+    if not href: return False
+    if href.startswith("http"): return "/vacancies/" in href
+    return bool(_detail_href_rx.match(href))
+
+_counter_rx = re.compile(r"\d+\s*ваканс", re.I)
+def _norm_text(t: str) -> str:
+    return re.sub(r"\s+", " ", (t or "")).strip()
+
+def _parse_salary_text(text: str):
+    """Возвращает (min,max) из произвольной зарплатной строки с ₽/руб."""
+    if not text: return (None, None)
+    t = text.replace("\u202f"," ").replace("\xa0"," ")
+    m = re.search(r"от\s*([\d\s]+)\s*до\s*([\d\s]+)\s*[₽Рруб.]*", t, re.I)
+    if m:
+        mn = int(re.sub(r"\D","",m.group(1))); mx = int(re.sub(r"\D","",m.group(2))); return (mn,mx)
+    m = re.search(r"до\s*([\d\s]+)\s*[₽Рруб.]*", t, re.I)
+    if m:
+        mx = int(re.sub(r"\D","",m.group(1))); return (None,mx)
+    m = re.search(r"от\s*([\d\s]+)\s*[₽Рруб.]*", t, re.I)
+    if m:
+        mn = int(re.sub(r"\D","",m.group(1))); return (mn,None)
+    m = re.search(r"([\d\s]{4,})\s*[₽Рруб.]*", t)
+    if m:
+        v = int(re.sub(r"\D","",m.group(1))); return (v,v)
+    return (None, None)
+
+def fetch_detail_title_salary(url):
+    """Тянем h1 и зарплату с карточки. Возвращает (title, (min,max))."""
+    try:
+        html = get_html(url, timeout=10)
+        if not html: return (None, (None,None))
+        soup = BeautifulSoup(html, "lxml")
+        h = soup.select_one("h1") or soup.select_one("h1,h2")
+        title = _norm_text(h.get_text(" ", strip=True)) if h else None
+        salary_text = ""
+        for sel in ['[class*="salary"]','[class*="Зарп"]','h1 ~ *','.vacancy','.card']:
+            el = soup.select_one(sel)
+            if el and ("₽" in el.get_text() or "руб" in el.get_text().lower()):
+                salary_text = el.get_text(" ", strip=True); break
+        mn,mx = _parse_salary_text(salary_text)
+        return (title, (mn,mx))
+    except Exception:
+        return (None, (None,None))
+
+def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
+    """Ищем реальные карточки, игнорируем счётчики, подтягиваем данные с detail."""
+    try:
+        html = get_html(VACANCIES_URL, timeout=10)
+        if not html: 
+            logging.warning("search_vacancies: empty HTML"); 
+            return []
+        soup = BeautifulSoup(html, "lxml")
+        anchors = soup.select('a[href*="/vacancies/"]')
+        items: List[Vacancy] = []
+        seen = set()
+
+        cat_map = {
+            "delivery": ["достав","курь","delivery"],
+            "driver": ["водит","driver","такси","авто"],
+            "construction": ["стро","монтаж","ремонт","сантех","электрик"],
+            "helper": ["разнораб","грузчик","рабоч","подсоб"],
+        }
+        wanted = cat_map.get(category, [])
+
+        for a in anchors:
+            href = a.get("href") or ""
+            if not _is_detail_href(href): 
+                continue
+            label = _norm_text(a.get_text(" ", strip=True))
+            if _counter_rx.search(label): 
+                continue
+            full_url = href if href.startswith("http") else urljoin(BASE_URL, href)
+            if full_url in seen: 
+                continue
+            seen.add(full_url)
+
+            title = label if len(label) >= 3 else ("Вакансия курьера" if category=="delivery" else "Вакансия")
+
+            # попробуем достать зарплату из карточки списка (родительские блоки)
+            parent = a; card_txt = ""
+            for _ in range(3):
+                parent = parent.parent
+                if not parent: break
+                txt = parent.get_text(" ", strip=True)
+                if txt and ("₽" in txt or "руб" in txt.lower()):
+                    card_txt = txt; break
+            mn,mx = _parse_salary_text(card_txt)
+
+            low = title.lower()
+            if wanted and not any(w in low for w in wanted):
+                if not any(w in (card_txt.lower()) for w in wanted):
+                    continue
+
+            if (mn is None and mx is None) or title in ("Вакансия","Вакансия курьера") or len(title) < 5:
+                t2,(mn2,mx2) = fetch_detail_title_salary(full_url)
+                title = t2 or title
+                mn = mn if mn is not None else mn2
+                mx = mx if mx is not None else mx2
+
+            items.append(Vacancy(title=title, url=full_url, city=city or "Москва",
+                                 salary_min=mn, salary_max=mx))
+
+        items.sort(key=lambda v:(v.salary_max or v.salary_min or 0), reverse=True)
+
+        if desired_salary:
+            filt = [v for v in items if (v.salary_max or v.salary_min or 0) >= desired_salary]
+            if filt: items = filt
+
+        logging.info("search_vacancies: %d items after filter", len(items))
+        return items
+    except Exception as e:
+        logging.exception("search_vacancies error: %s", e)
+        return []
+
+async def send_vacancy_list(message: Message, items: List[Vacancy], lang: str, desired: int, category: str = ""):
+    total = len(items)
+    top = items[:5]
+    lines = []
+    for v in top:
+        salary = _pretty_salary(v.salary_min, v.salary_max)
+        city = v.city or "Москва"
+        title = _norm_text(v.title) if v.title else ("Вакансия курьера" if category=="delivery" else "Вакансия")
+        lines.append(f"• <a href='{v.url}'>{title}</a> — {salary} ({city})")
+    header = "Вот подходящие вакансии:\n\n" if top else "К сожалению, подходящих вакансий не нашлось.\n\n"
+    text = header + ("\n".join(lines) if lines else "")
+    cat_ru = {"delivery":"доставки","driver":"водителей","construction":"строительства","helper":"разнорабочих"}.get(category or "", "на сайте")
+    text = (f"Найдено всего: {total}\n\n" if total else "") + text + f"\n\nЗдесь можно ознакомиться со всеми вакансиями {cat_ru}: {VACANCIES_URL}"
+    await message.answer(text, disable_web_page_preview=False)
+# ==== end patch ====
 
 async def main():
     logging.basicConfig(level=logging.INFO)
