@@ -20,7 +20,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v0.8.1 progress 1%-steps"
+BOT_VERSION = "v0.9 on_category: 1%-progress + safe search"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -414,39 +414,65 @@ async def on_category(call: CallbackQuery, state: FSMContext):
     category = call.data.split(":", 1)[1]
     await state.update_data(category=category)
 
-    await call.message.answer(t(lang, "searching"))
+    # Стартовое сообщение-плейсхолдер и прогресс 0%
     try:
-        city = data.get("geo", "Москва")
-        desired = data.get("salary", 0)
-        # Счётчик вакансий по категории (если удастся)
-        total = await asyncio.to_thread(get_category_total_for_listpage, category)
-        if total:
-            ru_name = CAT_LABELS["ru"][category]
-            await call.message.answer(f"Найдено всего {total:,} вакансий «{ru_name}»".replace(",", " "))
-        results = await asyncio.to_thread(search_vacancies, city, desired, category)
+        progress_msg = await call.message.answer(t(lang, "searching") + " 0%")
     except Exception:
+        progress_msg = call.message
+
+    async def do_search(desired_salary: int):
+        city = data.get("geo", "Москва")
+        try:
+            return await asyncio.to_thread(search_vacancies, city, desired_salary, category)
+        except Exception as e:
+            logging.warning(f"search_vacancies failed: {e}")
+            return []
+
+    # Запускаем основной поиск
+    desired = int(data.get("salary", 0) or 0)
+    search_task = asyncio.create_task(do_search(desired))
+
+    # Псевдопрогресс: 1% шаги пока идёт поиск
+    for pcent in range(1, 100):
+        if search_task.done():
+            break
+        try:
+            await progress_msg.edit_text(t(lang, "searching") + f" {pcent}%")
+        except Exception:
+            pass
+        await asyncio.sleep(0.12)
+
+    # Дожидаемся результата
+    try:
+        results = await search_task
+    except Exception as e:
+        logging.exception("search_task crashed: %s", e)
+        results = []
+
+    # Финал прогресса
+    try:
+        await progress_msg.edit_text("Готово! 100%")
+    except Exception:
+        pass
+
+    # Если ничего не нашли — пробуем без фильтра зарплаты
+    if not results:
+        fallback = await do_search(0)
+        if fallback:
+            await call.message.answer(t(lang, "found_none"))
+            await send_vacancy_list(call.message, fallback[:5], category)
+            return
         await call.message.answer(t(lang, "error"))
         return
 
-    if not results:
-        try:
-            relaxed = await asyncio.to_thread(search_vacancies, city, 0, category)
-        except Exception:
-            relaxed = []
-        if relaxed:
-            await call.message.answer(t(lang, "found_none"))
-            await send_vacancy_list(call.message, relaxed[:5], category)
-        else:
-            await call.message.answer(t(lang, "error"))
-        return
-
+    # Сообщение «нашёл больше денег, чем вы хотели»
     best = results[0].salary_sort_key
-    if best and best > data.get("salary", 0):
+    if best and best > desired:
         await call.message.answer(t(lang, "found_more"))
     else:
         await call.message.answer(t(lang, "found_some"))
-    await send_vacancy_list(call.message, results[:5], category)
 
+    await send_vacancy_list(call.message, results[:5], category)
 
 async def send_vacancy_list(message: Message, items: List[Vacancy], category: Optional[str] = None):
     # Строим список строк вакансий
