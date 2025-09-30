@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.1.1 override search_vacancies (clean & safe)"
+BOT_VERSION = "v1.1.2 remove broken block"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -296,49 +296,8 @@ def match_category(cat: str, text: str) -> bool:
     tl = (text or "").lower()
     return any(kw in tl for kw in CATEGORY_KEYWORDS.get(cat, []))
 
-def fetch_vacancy_cards(pages: int = 4) -> List[BeautifulSoup]:
-    """Грузим несколько страниц со списком вакансий и собираем карточки."""
-    cards: List[BeautifulSoup] = []
-    session = requests.Session()
-    for page in range(1, pages + 1):
-        url = VACANCIES_URL if page == 1 else f"{VACANCIES_URL}?page={page}"
-        try:
-            resp = session.get(url, headers=HEADERS, timeout=15)
-            if resp.status_code != 200:
-                continue
-        except Exception:
-            continue
-        html = get_html(VACANCIES_URL)
-    if not html:
-        logging.warning("list empty html")
-        return []
-    logging.info(f"list html len={len(html)}")
-    html = get_html(VACANCIES_URL)
-    if not html:
-        logging.warning("list empty html")
-        return []
-    logging.info(f"list html len={len(html)}")
-    html = get_html(VACANCIES_URL)
-    if not html:
-        logging.warning("list empty html")
-        return []
-    logging.info(f"list html len={len(html)}")
-    soup = BeautifulSoup(html, "lxml")
-        candidates = []
-        candidates.extend(soup.select("div.vacancy-card"))
-        candidates.extend(soup.select("article.vacancy"))
-        candidates.extend(soup.select("div[class*='vacancy']"))
-        candidates.extend(soup.select("a[href*='/vac']"))
-        # удалим дубль-элементы
-        seen, cleaned = set(), []
-        for c in candidates:
-            key = str(c)
-            if key in seen:
-                continue
-            seen.add(key)
-            cleaned.append(c)
-        cards.extend(cleaned)
-    return cards
+
+# ---- removed broken block (indent fix) ----
 
 def card_to_vacancy(card: BeautifulSoup) -> Optional[Vacancy]:
     """Преобразуем карточку в объект Vacancy (заголовок, ссылка, зарплата из блока зарплаты)."""
