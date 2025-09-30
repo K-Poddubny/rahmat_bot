@@ -27,6 +27,8 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
 
+import logging
+
 # -------------------------------------------------------------
 # Локализация (простая): тексты на 4 языках
 # Ключи: 'ru', 'uz', 'ky', 'tg'
