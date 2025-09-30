@@ -23,7 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_VERSION = "v1.5.3 compat main() added"
+BOT_VERSION = "v1.5.6 graceful empty-case + footer link"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Не найден TELEGRAM_BOT_TOKEN в .env")
@@ -530,21 +530,18 @@ async def on_category(call: CallbackQuery, state: FSMContext):
 
 
     top5 = results[:5]
+    if not top5:
+        # Фолбэк: покажем лучшие доступные, даже если не дотягивают до desired
+        all_items = search_vacancies(city, 0, category)
+        if all_items:
+            _note = f"Не нашёл вакансий с зарплатой от {desired:,} ₽. Вот лучшие из доступных:".replace(',', ' ')
+            await call.message.answer(_note)
+            top5 = all_items[:5]
+        else:
+            await call.message.answer("Пока ничего не нашёл. Попробуйте другую категорию или сумму.")
+            top5 = []
     await send_vacancy_list(call.message, top5, lang, desired, category)
 
-async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
-    lines = []
-    for v in items:
-        mx = getattr(v, 'salary_max', None)
-        if mx is None:
-            mx = getattr(v, 'salary_min', None)
-        salary_str = '—' if mx is None else f"до {mx:,} ₽".replace(',', ' ')
-        city  = getattr(v, 'city', None) or 'Москва'
-        title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
-        url   = getattr(v, 'url', '')
-        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '\n'.join(lines) if lines else '—'
-    await message.answer(text, disable_web_page_preview=False)
 
 def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
     """
@@ -843,25 +840,43 @@ def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vaca
         logging.exception("search_vacancies error: %s", e)
         return []
 
-async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
-    lines = []
-    for v in items:
-        mx = getattr(v, 'salary_max', None)
-        if mx is None:
-            mx = getattr(v, 'salary_min', None)
-        salary_str = '—' if mx is None else f"до {mx:,} ₽".replace(',', ' ')
-        city  = getattr(v, 'city', None) or 'Москва'
-        title = getattr(v, 'title', None) or ('Вакансия курьера' if category=='delivery' else 'Вакансия')
-        url   = getattr(v, 'url', '')
-        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
-    text = '\n'.join(lines) if lines else '—'
 
-    await message.answer(text, disable_web_page_preview=False)
-
-
-
-# ====== Compat entry point (auto-added) ======
 import asyncio as _asyncio
+
+
+# === salary/id helpers (robust) ===
+import unicodedata as _ud
+_vacid_rx = re.compile(r"/vacancies/(\d+)")
+_num = r"(?:\d[\d\u00A0\u202F\s\.]{0,12}\d)"
+_salary_rx = re.compile(
+    rf"(?i)(?:от|до)?\s*({_num})(?:\s*[–\-]\s*({_num}))?\s*(?:руб|₽)"
+)
+
+def _norm_num(txt: str):
+    if not txt:
+        return None
+    t = txt.replace("\u202f"," ").replace("\u00a0"," ").replace("."," ").strip()
+    try:
+        return int(re.sub(r"\D+", "", t))
+    except Exception:
+        return None
+
+def extract_max_salary(text: str):
+    if not text:
+        return None
+    m = _salary_rx.search(text)
+    if not m:
+        return None
+    a = _norm_num(m.group(1))
+    b = _norm_num(m.group(2) or "")
+    return max(a or 0, b or 0) or None
+
+def extract_vacid(href: str):
+    if not href:
+        return None
+    m = _vacid_rx.search(href)
+    return m.group(1) if m else None
+
 
 async def main():
     """Compatibility entry point for external runners/diagnostics."""
@@ -888,3 +903,113 @@ async def main():
 
 if __name__ == "__main__":  # локальный запуск файла
     _asyncio.run(main())
+
+
+# === clean & ranked search_vacancies (returns TOP-5) ===
+def search_vacancies(city: str, desired_salary: int, category: str) -> List[Vacancy]:
+    # Собираем карточки; считаем max зарплату; фильтруем (>= desired_salary);
+    # дедуп по id; сортировка по убыванию max; возвращаем ТОП-5.
+    try:
+        url = VACANCIES_URL
+        html = get_html(url, timeout=10)
+        if not html:
+            logging.warning("search_vacancies: empty html for %s", url)
+            return []
+        soup = BeautifulSoup(html, "lxml")
+
+        cards = []
+        for a in soup.select("a"):
+            href = a.get("href", "")
+            if "/vacancies/" not in href:
+                continue
+            vid = extract_vacid(href)
+            if not vid:
+                continue
+
+            title = (a.get_text(" ", strip=True) or "").strip()
+            ttl_l = title.lower()
+            if category == "delivery" and not any(k in ttl_l for k in ("курьер","доставка")):
+                continue
+            if category == "driver" and not any(k in ttl_l for k in ("водител","такси","авто")):
+                continue
+            if category == "construction" and not any(k in ttl_l for k in ("строй","монтаж","разнораб","плотник","свар")):
+                continue
+
+            s_text = a.get_text(" ", strip=True)
+            s_max = extract_max_salary(s_text) or extract_max_salary(title)
+
+            href_full = href if href.startswith("http") else BASE_URL.rstrip("/") + "/" + href.lstrip("/")
+
+            if not s_max:
+                try:
+                    det_html = get_html(href_full, timeout=6)
+                    if det_html:
+                        det_soup = BeautifulSoup(det_html, "lxml")
+                        det_text = det_soup.get_text(" ", strip=True)
+                        s_from_detail = extract_max_salary(det_text)
+                        if s_from_detail:
+                            s_max = s_from_detail
+                except Exception as e:
+                    logging.debug("detail fetch failed for %s: %s", href_full, e)
+
+            cards.append({
+                "id": vid,
+                "title": title or "Вакансия",
+                "url": href_full,
+                "city": city or "Москва",
+                "s_max": s_max or 0,
+            })
+
+        best = {}
+        for c in cards:
+            cur = best.get(c["id"])
+            if not cur or c["s_max"] > cur["s_max"]:
+                best[c["id"]] = c
+        items = list(best.values())
+
+        if desired_salary:
+            items = [c for c in items if c["s_max"] >= int(desired_salary)]
+
+        items.sort(key=lambda x: x["s_max"], reverse=True)
+
+        Vac = globals().get("Vacancy")
+        res = []
+        for c in items[:5]:
+            if Vac:
+                v = Vac()
+                v.title = c["title"]; v.url = c["url"]; v.city = c["city"]; v.salary_max = c["s_max"] or None
+                res.append(v)
+            else:
+                class _V: pass
+                v = _V()
+                v.title = c["title"]; v.url = c["url"]; v.city = c["city"]; v.salary_max = c["s_max"] or None
+                res.append(v)
+        logging.info("search_vacancies: %s items after dedup/filter; top max=%s", len(items), (items[0]["s_max"] if items else None))
+        return res
+    except Exception as e:
+        logging.exception("search_vacancies failed: %s", e)
+        return []
+
+
+# === helpers v1.5.6: stable list output with footer ===
+def _category_title(cat: str) -> str:
+    return {
+        "delivery": "доставки",
+        "driver": "водителей",
+        "construction": "строительства",
+        "worker": "разнорабочих",
+    }.get(cat, "вакансий")
+
+async def send_vacancy_list(message, items, lang: str, desired: int, category: str):
+    lines = []
+    for v in items:
+        mx = getattr(v, "salary_max", None) or getattr(v, "salary_min", None)
+        salary_str = f"до {mx:,} ₽".replace(",", " ") if mx else "—"
+        title = getattr(v, "title", None) or ("Вакансия курьера" if category == "delivery" else "Вакансия")
+        city  = getattr(v, "city", None) or "Москва"
+        url   = getattr(v, "url", "") or VACANCIES_URL
+        lines.append(f"• <a href='{url}'>{title}</a> — {salary_str} ({city})")
+    footer = f"\\n\\nЗдесь можно ознакомиться со всеми вакансиями {_category_title(category)}: {VACANCIES_URL}"
+    text = "\\n".join(lines) + footer if lines else "Пока не нашёл подходящих вакансий."
+    await message.answer(text, disable_web_page_preview=False)
+
