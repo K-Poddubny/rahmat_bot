@@ -40,7 +40,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "start": "Здравствуйте! Выберите язык интерфейса:",
         "help": "Я помогу найти вакансии с самыми высокими зарплатами.",
         "choose_geo": "Выберите город (пока доступна только Москва):",
-        "choose_salary": "На какую зарплату вы рассчитываете? Напишите цифрой в рублях, например 90000:",
+        "choose_salary": "На какую зарплату вы рассчитываете? Напишите цифрой в рублях, например 90 000:",
         "choose_category": "Кем хотите работать? Выберите категорию:",
         "searching": "Ищу вакансии…",
         "found_more": "Отличные новости! Нашёл вакансии с зарплатой выше вашей цели.",
@@ -52,13 +52,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "cat_driver": "Водитель",
         "cat_construction": "Строительство",
         "cat_helper": "Разнорабочий",
-        "salary_bad": "Пожалуйста, отправьте число — желаемую зарплату в рублях (например, 90000).",
+        "salary_bad": "Пожалуйста, отправьте число — желаемую зарплату в рублях (например, 90 000).",
     },
     "uz": {
         "start": "Salom! Interfeys tilini tanlang:",
         "help": "Men eng yuqori maoshli ishlarni topishga yordam beraman.",
         "choose_geo": "Shaharni tanlang (hozircha faqat Moskva):",
-        "choose_salary": "Qancha maosh xohlaysiz? Rubl miqdorini yozing, masalan 90000:",
+        "choose_salary": "Qancha maosh xohlaysiz? Rubl miqdorini yozing, masalan 90 000:",
         "choose_category": "Qanday ish istaysiz? Kategoriyani tanlang:",
         "searching": "Ish o‘rinlarini qidirmoqdaman…",
         "found_more": "Ajoyib! Siz xohlaganingizdan ham yuqori maoshli ishlar topildi.",
@@ -76,7 +76,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "start": "Салам! Интерфейс тилин тандаңыз:",
         "help": "Эң жогорку айлыктагы жумуштарды табууга жардам берем.",
         "choose_geo": "Шаарды тандаңыз (азырынча Москва гана):",
-        "choose_salary": "Канча айлык каалайсыз? Санды рубль менен жазыңыз, мисалы 90000:",
+        "choose_salary": "Канча айлык каалайсыз? Санды рубль менен жазыңыз, мисалы 90 000:",
         "choose_category": "Кандай жумуш? Категорияны тандаңыз:",
         "searching": "Вакансияларды издеп жатам…",
         "found_more": "Супер! Каалаганыңыздан да жогору айлык менен табылды.",
@@ -94,7 +94,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "start": "Салом! Забони интерфейсро интихоб кунед:",
         "help": "Ман барои ёфтани ҷойҳои кори бо музди баланд кӯмак мекунам.",
         "choose_geo": "Шаҳрро интихоб кунед (ҳоло танҳо Маскав):",
-        "choose_salary": "Музди дилхоҳатон чанд аст? Рақамро бо рубл нависед, масалан 90000:",
+        "choose_salary": "Музди дилхоҳатон чанд аст? Рақамро бо рубл нависед, масалан 90 000:",
         "choose_category": "Кори дилхоҳ? Категорияро интихоб кунед:",
         "searching": "Дар ҷустуҷӯи вакансӣ…",
         "found_more": "Аъло! Аз маоши дилхоҳ баландтар ҳам ёфтем.",
@@ -386,20 +386,20 @@ async def on_geo(call: CallbackQuery, state: FSMContext):
 async def on_salary(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    text = message.text or ""
-    # Достаём первое число из сообщения
-    m = re.search(r"(\\d{4,})", text.replace(" ", ""))
-    if not m:
+    raw = message.text or ""
+    # Удаляем всё, что не цифра (включая неразрывные пробелы и знаки)
+    digits = re.sub(r"\D+", "", raw)
+    if len(digits) < 4:
         await message.answer(t(lang, "salary_bad"))
         return
-    desired = int(m.group(1))
+    desired = int(digits)
     await state.update_data(salary=desired)
 
     # Выбор категории
     await state.set_state(FindJob.category)
     await message.answer(t(lang, "choose_category"), reply_markup=category_keyboard(lang))
 
-@dp.callback_query(F.data.startswith("cat:"))
+@dp.callback_query(F.data.startswith("cat:"))(F.data.startswith("cat:"))
 async def on_category(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
